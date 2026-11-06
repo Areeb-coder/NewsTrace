@@ -148,6 +148,26 @@ def _fetch_listing_html(url):
     return response.url, response.text
 
 
+async def _get_next_page_hrefs(page):
+    """
+    Best-effort pagination discovery.
+
+    evaluate_all runs against the current DOM and returns [] when no next link
+    exists. Unlike count() followed by get_attribute(), it avoids a race where
+    a dynamically replaced pagination element disappears between two calls.
+    Pagination is optional: any locator/navigation race must not abort crawling.
+    """
+    selector = 'a[rel="next"], a.next, a[aria-label*="next" i]'
+    try:
+        return await page.locator(selector).evaluate_all(
+            "(anchors) => anchors.map((anchor) => anchor.getAttribute('href')).filter(Boolean)",
+            timeout=500,
+        )
+    except Exception as exc:
+        print(f"Skipping optional pagination lookup: {type(exc).__name__}: {exc}")
+        return []
+
+
 def is_section_page(url, base_domain):
     """Identify section pages worth following during a bounded crawl."""
     if not same_domain(url, base_domain):
@@ -354,18 +374,11 @@ async def crawl_sections_parallel(
                             queued_pages.add(absolute)
                             pending.append(absolute)
 
-                    # The HTTP fallback already supplied the link list. Only query
-                    # Playwright for a next-page control when its navigation worked.
+                    # Pagination is optional. A missing/dynamically replaced next
+                    # link must never abort discovery of links already collected.
                     if browser_loaded:
-                        next_locator = page.locator(
-                            'a[rel="next"], a.next, a[aria-label*="next" i]'
-                        ).first
-                        next_href = (
-                            await next_locator.get_attribute("href", timeout=800)
-                            if await next_locator.count()
-                            else None
-                        )
-                        if next_href:
+                        next_hrefs = await _get_next_page_hrefs(page)
+                        for next_href in next_hrefs[:2]:
                             next_url = normalize_url(urljoin(current_url, next_href))
                             if (
                                 next_url
