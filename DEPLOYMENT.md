@@ -84,3 +84,13 @@ A page that times out or is blocked is counted as a failed page/article and skip
 If discovery finishes with no URLs, try a direct section URL rather than only the publication homepage. If URLs are found but no articles are parsed, the publication may block automated browsers, require authenticated cookies, or use a page structure that needs a source-specific extractor. The UI now shows this distinction rather than silently returning an empty result.
 
 For production, deploy the repository's Dockerfile so Chromium and its required system libraries are present. A successful Streamlit health check confirms the server starts; it does not guarantee every publisher permits automated scraping.
+
+
+### Pagination timeout note
+
+The crawler treats a "next page" link as optional. It reads matching pagination
+hrefs directly from the current DOM; a missing, replaced or inaccessible
+pagination control returns an empty list and does not fail the current page's
+article-link extraction. Do not restore a `count()` + `get_attribute()` pair
+for this optional lookup because a dynamically rendered link can disappear
+between those two operations.
