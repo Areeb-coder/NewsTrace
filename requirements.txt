@@ -13,3 +13,7 @@ networkx>=3.4,<4
 feedparser>=6.0.11,<7
 supabase>=2.10,<3
 python-dotenv>=1.0,<2
+
+# FastAPI API layer for the Next.js web application.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
