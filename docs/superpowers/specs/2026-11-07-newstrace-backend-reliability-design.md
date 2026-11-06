@@ -34,6 +34,13 @@ Initial risk findings requiring focused verification:
 
 These are code-inspection findings, not yet a reproduced runtime failure. No source code has been changed and no tests/build have been run in a local project runtime during reconnaissance.
 
+## Technical references reviewed
+
+- [FastAPI Background Tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/) says in-process background work is appropriate for work that can stay with the same application process, while heavier work that benefits from multiple processes/servers may need a separate worker/queue. This supports retaining the documented single-process design for this targeted repair, not pretending that it survives restarts.
+- [Python asyncio tasks and timeouts](https://docs.python.org/3/library/asyncio-task.html) documents `asyncio.timeout()` / `wait_for()` cancellation and `asyncio.to_thread()`. An async deadline around a thread wait does not prove the underlying blocking function stopped; the blocking HTTP calls must also have their own connect/read timeouts.
+- [Playwright Python Page API](https://playwright.dev/python/docs/api/class-page) documents navigation timeouts and that `page.goto()` returns the last non-redirect response. [Playwright Network](https://playwright.dev/python/docs/network) specifically says route handlers run only for the first URL in a redirect chain, after which the browser follows redirects itself. Therefore, adding `browser_context.route()` alone is not a complete redirect-target security check.
+- [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) warns that domain validation alone does not prevent DNS rebinding: validation must cover resolved destination addresses and the actual connection destination. When users may investigate arbitrary public publishers, a strict hostname allowlist is not compatible with the product; network egress isolation or a controlled outbound proxy is the stronger deployment boundary.
+
 ## Goals
 
 - Make discovery and extraction bounded, observable and failure-isolated.
@@ -79,8 +86,8 @@ Rebuild routes, data model and scraper orchestration as a new subsystem.
 ## Proposed implementation shape
 
 1. **Reproduce and instrument the failure.** Use existing unit/integration tests as a baseline; add focused tests around source resolution timing/failures, progress callback delivery, job terminal transitions and frontend polling failures. Inspect the precise stage and event history rather than inferring from a spinner.
-2. **Bound source resolution.** Use explicit connect/read timeouts and an overall deadline; stop the repeated TLD guess sequence from consuming an unbounded user wait; provide meaningful progress stages and useful input guidance. Prefer direct URLs or a controlled search result when appropriate. A lookup failure should set a terminal job error rather than leave it running.
-3. **Harden outbound source navigation.** Validate HTTP(S), credentials, ports and resolved addresses; validate redirect targets and browser navigation/subresource requests; document residual DNS-rebinding and hosting-level egress controls. Do not bypass publisher protections.
+2. **Bound source resolution.** Use explicit connect/read timeouts and an overall deadline; stop the repeated TLD guess sequence from consuming an unbounded user wait; provide meaningful progress stages and useful input guidance. Prefer direct URLs or a controlled search result when appropriate. A lookup failure should set a terminal job error rather than leave it running. Do not rely only on cancelling an `asyncio.to_thread()` await to stop a synchronous HTTP call.
+3. **Harden outbound source navigation.** Validate HTTP(S), credentials, ports and resolved addresses. Handle redirects explicitly for HTTP clients. Do not assume a Playwright route handler is invoked for each redirect hop; use a proven redirect policy and document any residual DNS-rebinding risk. Validate browser requests where interception applies and use hosting-level egress restrictions or a controlled proxy for the actual network boundary where available. Do not bypass publisher protections.
 4. **Protect the async job lifecycle.** Keep blocking I/O off the event loop, bound concurrency and request times, preserve ordered progress writes, handle task cancellation/shutdown, and ensure storage errors cannot silently yield a false successful result.
 5. **Validate extraction and partial success.** Retain valid article metadata when individual pages fail, record bounded diagnostics, enforce per-page deadlines, and classify complete vs partial consistently.
 6. **Preserve API/frontend contract.** Confirm the existing response fields and status values used by `frontend/lib/api.ts` and `frontend/app/page.tsx`. Ensure polling continues during transient network errors but stops on terminal states, shows errors and allows the existing retry interaction.
