@@ -847,34 +847,32 @@ if "df" in st.session_state and st.session_state["df"] is not None:
         )
         summary_left, summary_right = st.columns([1.2, 1])
         with summary_left:
-            st.markdown('<div class="nt-card">', unsafe_allow_html=True)
-            st.markdown("**Pipeline stages**")
-            stage_names = [
-                ("Article URLs discovered", stats.get("urls_found", 0)),
-                ("Articles successfully parsed", stats.get("articles_scraped", article_count)),
-                ("Journalist profiles enriched", stats.get("profiles_found", 0)),
-                ("Search-enriched profiles", stats.get("google_enriched", 0)),
-            ]
-            for stage_name, stage_value in stage_names:
+            with st.container(border=True):
+                st.markdown("**Pipeline stages**")
+                stage_names = [
+                    ("Article URLs discovered", stats.get("urls_found", 0)),
+                    ("Articles successfully parsed", stats.get("articles_scraped", article_count)),
+                    ("Journalist profiles enriched", stats.get("profiles_found", 0)),
+                    ("Search-enriched profiles", stats.get("google_enriched", 0)),
+                ]
+                for stage_name, stage_value in stage_names:
+                    st.markdown(
+                        f'<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid rgba(157,180,205,.10);">'
+                        f'<span style="color:#9DB0C2;font-size:12px;">{stage_name}</span>'
+                        f'<strong style="color:#EAF1F8;font-size:13px;font-variant-numeric:tabular-nums;">{stage_value:,}</strong></div>',
+                        unsafe_allow_html=True,
+                    )
+        with summary_right:
+            with st.container(border=True):
+                st.markdown("**Data quality signal**")
+                known_pct = 100 - unknown_pct
                 st.markdown(
-                    f'<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid rgba(157,180,205,.10);">'
-                    f'<span style="color:#9DB0C2;font-size:12px;">{stage_name}</span>'
-                    f'<strong style="color:#EAF1F8;font-size:13px;font-variant-numeric:tabular-nums;">{stage_value:,}</strong></div>',
+                    f'<div style="font-size:30px;font-weight:760;color:#A8EBD2;margin:12px 0 4px;">{known_pct:.1f}%</div>'
+                    '<div style="font-size:11px;color:#93A6BA;">of collected articles have an identified author</div>',
                     unsafe_allow_html=True,
                 )
-            st.markdown("</div>", unsafe_allow_html=True)
-        with summary_right:
-            st.markdown('<div class="nt-card">', unsafe_allow_html=True)
-            st.markdown("**Data quality signal**")
-            known_pct = 100 - unknown_pct
-            st.markdown(
-                f'<div style="font-size:30px;font-weight:760;color:#A8EBD2;margin:12px 0 4px;">{known_pct:.1f}%</div>'
-                '<div style="font-size:11px;color:#93A6BA;">of collected articles have an identified author</div>',
-                unsafe_allow_html=True,
-            )
-            st.progress(max(0.0, min(1.0, known_pct / 100)))
-            st.caption(f"{unknown_count:,} article(s) currently have an unknown author.")
-            st.markdown("</div>", unsafe_allow_html=True)
+                st.progress(max(0.0, min(1.0, known_pct / 100)))
+                st.caption(f"{unknown_count:,} article(s) currently have an unknown author.")
 
         st.markdown(
             """
