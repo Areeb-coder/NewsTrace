@@ -12,11 +12,11 @@ import time
 from collections import deque
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
-import requests
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from scrapers.api_scraper import try_api_scraping
+from utils.url_safety import install_public_network_guard, safe_get
 
 
 TRACKING_PARAMS = {
@@ -127,7 +127,7 @@ def is_article_url(url, base_domain):
 
 def _fetch_listing_html(url):
     """Try a bounded plain-HTTP listing fetch if Chromium cannot open a section."""
-    response = requests.get(
+    response = safe_get(
         url,
         headers={
             "User-Agent": (
@@ -138,7 +138,7 @@ def _fetch_listing_html(url):
             "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
         },
         timeout=(3, 7),
-        allow_redirects=True,
+        max_redirects=5,
     )
     content_type = response.headers.get("Content-Type", "").lower()
     if response.status_code >= 400:
@@ -308,6 +308,7 @@ async def crawl_sections_parallel(
                 ),
                 ignore_https_errors=False,
             )
+            await install_public_network_guard(context)
             page = await context.new_page()
             page.set_default_navigation_timeout(navigation_timeout_ms)
             page.set_default_timeout(5000)
