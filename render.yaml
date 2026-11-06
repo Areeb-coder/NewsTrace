@@ -1,5 +1,5 @@
 services:
-  # One production service: static Next.js export + FastAPI + Playwright worker.
+  # One combined service. Free is for preview/testing only; switch to paid always-on compute before production.
   - type: web
     name: newstrace
     runtime: docker
