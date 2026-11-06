@@ -1,4 +1,4 @@
-name: NewsTrace deployment smoke test
+name: NewsTrace Next.js and FastAPI deployment checks
 
 on:
   push:
@@ -10,13 +10,28 @@ permissions:
   contents: read
 
 jobs:
-  smoke-test:
+  web-fastapi-smoke-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+
+      - name: Install and build Next.js frontend
+        working-directory: frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run typecheck
+          npm run build
+
+      - name: Confirm static frontend output exists
+        run: test -s frontend/out/index.html
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,37 +51,230 @@ jobs:
       - name: Compile Python source
         run: python -m compileall -q .
 
-      - name: Run discovery regression tests
+      - name: Run discovery, parser, job-store and API regression tests
         run: python -m unittest discover -s tests -v
 
-      - name: Start Streamlit and check health endpoint
+      - name: Start FastAPI and check API plus frontend
         shell: bash
+        env:
+          NEWSTRACE_DB_PATH: ${{ runner.temp }}/newstrace-smoke.sqlite3
         run: |
-          streamlit run app.py \
-            --server.address=127.0.0.1 \
-            --server.port=8501 \
-            --server.headless=true \
-            --browser.gatherUsageStats=false > streamlit.log 2>&1 &
-          echo $! > streamlit.pid
-
+          uvicorn backend.main:app --host 127.0.0.1 --port 8000 > fastapi.log 2>&1 &
+          echo $! > fastapi.pid
           python - <<'PY'
           import time
           import requests
 
-          health_url = "http://127.0.0.1:8501/_stcore/health"
+          base = "http://127.0.0.1:8000"
           for attempt in range(60):
               try:
-                  response = requests.get(health_url, timeout=2)
-                  if response.ok and response.text.strip().lower() == "ok":
-                      print("Streamlit health check passed.")
+                  health = requests.get(f"{base}/api/health", timeout=2)
+                  if health.ok and health.json().get("ok") is True:
                       break
               except requests.RequestException:
                   pass
               time.sleep(1)
           else:
-              raise SystemExit("Streamlit did not become healthy within 60 seconds.")
+              raise SystemExit("FastAPI did not become healthy within 60 seconds.")
+
+          response = requests.get(base, timeout=5)
+          if response.status_code != 200 or "NewsTrace" not in response.text:
+              raise SystemExit("The FastAPI service did not serve the exported Next.js homepage.")
+
+          for path in ("/api/articles", "/api/categories", "/api/sources", "/api/coverage", "/api/journalists"):
+              check = requests.get(base + path, timeout=5)
+              if not check.ok:
+                  raise SystemExit(f"{path} returned HTTP {check.status_code}: {check.text[:300]}")
+
+          print("FastAPI health, static homepage and archive endpoints passed.")
           PY
 
-      - name: Show Streamlit logs on failure
+      - name: Browser-test editorial navigation, search shortcut and responsive layout
+        run: |
+          python - <<'PY'
+          import asyncio
+          import json
+          from playwright.async_api import async_playwright
+
+          async def main():
+              async with async_playwright() as playwright:
+                  browser = await playwright.chromium.launch(headless=True)
+                  page = await browser.new_page(viewport={"width": 1440, "height": 1000})
+                  errors = []
+                  page.on("pageerror", lambda error: errors.append(str(error)))
+
+                  response = await page.goto("http://127.0.0.1:8000", wait_until="networkidle", timeout=30000)
+                  if not response or response.status != 200:
+                      raise SystemExit("The editorial frontend did not return HTTP 200.")
+
+                  await page.get_by_role("heading", name="The world, observed closely.").wait_for()
+                  await page.get_by_role("button", name="Archive").click()
+                  archive_heading = page.get_by_role("heading", name="The record, within reach.")
+                  await archive_heading.wait_for()
+                  await archive_heading.click()
+                  await page.keyboard.press("/")
+                  search = page.get_by_label("Search the record")
+                  await search.wait_for()
+                  if not await search.evaluate("(element) => document.activeElement === element"):
+                      raise SystemExit("The / shortcut did not focus archive search.")
+
+                  await page.get_by_role("button", name="New investigation +").click()
+                  await page.get_by_label("Publication name or section URL").wait_for()
+
+                  for width in (390, 430, 768, 1024, 1280, 1440):
+                      await page.set_viewport_size({"width": width, "height": 920})
+                      await page.wait_for_timeout(80)
+                      overflow = await page.evaluate(
+                          "() => document.documentElement.scrollWidth > window.innerWidth + 2"
+                      )
+                      if overflow:
+                          raise SystemExit(f"Unexpected horizontal overflow at viewport width {width}px.")
+
+                  if errors:
+                      raise SystemExit("Browser runtime errors: " + " | ".join(errors[:4]))
+
+                  # Simulate a tab refresh while a server-side job is running.
+                  # The browser should reconnect only to its own saved job ID.
+                  resume_page = await browser.new_page(viewport={"width": 1280, "height": 900})
+                  resume_job = {
+                      "job_id": "resume-e2e-job",
+                      "outlet": "Example News",
+                      "source_url": "https://example.com",
+                      "status": "running",
+                      "stage": "Article extraction",
+                      "detail": "Processed 4/12 · 4 article records retained",
+                      "current": 4,
+                      "total": 12,
+                      "events": [{
+                          "stage": "Article extraction",
+                          "detail": "Processed 4/12 · 4 article records retained",
+                          "current": 4,
+                          "total": 12,
+                          "at": "2026-11-06T00:00:00+00:00",
+                      }],
+                      "parameters": {"outlet": "Example News", "max_articles": 12},
+                      "stats": {},
+                      "warnings": [],
+                      "error": None,
+                      "created_at": "2026-11-06T00:00:00+00:00",
+                      "updated_at": "2026-11-06T00:00:01+00:00",
+                      "finished_at": None,
+                  }
+
+                  async def running_status(route):
+                      await route.fulfill(
+                          status=200,
+                          content_type="application/json",
+                          body=json.dumps(resume_job),
+                      )
+
+                  await resume_page.route("**/api/discovery/resume-e2e-job", running_status)
+                  await resume_page.goto("http://127.0.0.1:8000", wait_until="networkidle", timeout=30000)
+                  await resume_page.evaluate(
+                      "() => window.localStorage.setItem('newstrace:active-job', 'resume-e2e-job')"
+                  )
+                  await resume_page.reload(wait_until="networkidle", timeout=30000)
+                  await resume_page.get_by_text(
+                      "Reconnected to your investigation on NewsTrace."
+                  ).wait_for()
+                  await resume_page.locator(".job-stage").filter(
+                      has_text="Article extraction"
+                  ).wait_for()
+                  await resume_page.close()
+
+                  # Exercise the frontend's actual Discover -> job status ->
+                  # results flow with deterministic API responses.
+                  await page.get_by_role("button", name="Front page").click()
+
+                  completed_job = {
+                      "job_id": "browser-e2e-job",
+                      "outlet": "Example News",
+                      "source_url": "https://example.com",
+                      "status": "complete",
+                      "stage": "Complete",
+                      "detail": "1 article records are ready.",
+                      "current": 1,
+                      "total": 1,
+                      "events": [{
+                          "stage": "Complete",
+                          "detail": "1 article records are ready.",
+                          "current": 1,
+                          "total": 1,
+                          "at": "2026-11-06T00:00:02+00:00",
+                      }],
+                      "parameters": {"outlet": "Example News", "max_articles": 50},
+                      "stats": {"urls_found": 1, "articles_scraped": 1},
+                      "warnings": [],
+                      "error": None,
+                      "created_at": "2026-11-06T00:00:00+00:00",
+                      "updated_at": "2026-11-06T00:00:02+00:00",
+                      "finished_at": "2026-11-06T00:00:02+00:00",
+                  }
+                  article = {
+                      "title": "A source-linked report from the browser test",
+                      "author": "A Reporter",
+                      "section": "World",
+                      "date": "2026-11-06",
+                      "url": "https://example.com/world/browser-test",
+                      "image_url": None,
+                      "outlet": "Example News",
+                  }
+
+                  async def accept_discovery(route):
+                      await route.fulfill(
+                          status=202,
+                          content_type="application/json",
+                          body=json.dumps({
+                              "job_id": "browser-e2e-job",
+                              "status": "queued",
+                              "status_url": "/api/discovery/browser-e2e-job",
+                              "results_url": "/api/discovery/browser-e2e-job/results",
+                          }),
+                      )
+
+                  async def completed_status(route):
+                      await route.fulfill(
+                          status=200,
+                          content_type="application/json",
+                          body=json.dumps(completed_job),
+                      )
+
+                  async def completed_results(route):
+                      await route.fulfill(
+                          status=200,
+                          content_type="application/json",
+                          body=json.dumps({
+                              "job_id": "browser-e2e-job",
+                              "status": "complete",
+                              "outlet": "Example News",
+                              "source_url": "https://example.com",
+                              "articles": [article],
+                              "stats": completed_job["stats"],
+                              "warnings": [],
+                              "total": 1,
+                              "offset": 0,
+                              "limit": 500,
+                          }),
+                      )
+
+                  await page.route("**/api/discovery/start", accept_discovery)
+                  await page.route("**/api/discovery/browser-e2e-job", completed_status)
+                  await page.route("**/api/discovery/browser-e2e-job/results", completed_results)
+                  await page.get_by_label("Publication name or section URL").fill("Example News")
+                  await page.get_by_role("button", name="Begin discovery →").click()
+                  await page.get_by_text("1 article records are ready in the edition.").wait_for()
+                  await page.get_by_role(
+                      "heading",
+                      name="A source-linked report from the browser test",
+                  ).wait_for()
+
+                  await browser.close()
+                  print("Browser navigation, archive shortcut, discovery submission, job result rendering, refresh recovery and 6 viewport checks passed.")
+
+          asyncio.run(main())
+          PY
+
+      - name: Show FastAPI logs on failure
         if: failure()
-        run: cat streamlit.log || true
+        run: cat fastapi.log || true
+

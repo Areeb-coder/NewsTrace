@@ -1,458 +1,161 @@
-# 🔍 NewsTrace
+# NewsTrace
 
-### Journalist Intelligence & News Coverage Analysis Platform
+**NewsTrace is a source-led digital newspaper and news-intelligence application.** It discovers publicly accessible article pages, extracts article metadata and available bylines, and presents the records in a searchable editorial archive.
 
-NewsTrace is an intelligent web-scraping platform designed to discover journalists, analyze their coverage patterns, and extract structured information from news websites.
+The production application is a **Next.js / React / TypeScript frontend served by a FastAPI backend**. The existing Python discovery and Playwright extraction modules remain the investigation engine.
 
-Instead of manually searching through hundreds of articles and author pages, NewsTrace automates the process of discovering articles, identifying journalists, extracting author information, and enriching journalist profiles with additional publicly available data.
+## Product
 
----
+The current frontend contains four desks:
 
-## 🏆 Hackathon Recognition
+- **Front page** — lead story and latest source-linked article records.
+- **Archive** — article search, section/publication/date filters, sorting, pagination and CSV/JSON export.
+- **Coverage desk** — article totals, identified journalists, publication counts and section distribution.
+- **Bylines** — journalist directory aggregated from extracted author metadata.
 
-**Runner-Up — Hack of Thrones Hackathon**  
-Organized by **Google Developer Group (GDG) JMI**
+A user can start an investigation with a publication name or a direct section URL. The API returns a job ID immediately; discovery and extraction continue in the background, and the UI displays real server-reported stages, counts, warnings and results.
 
-NewsTrace was developed and presented as the project that secured the **Runner-Up** position at the Hack of Thrones hackathon organized by GDG JMI.
+NewsTrace extracts public article metadata. The original publisher remains the authoritative source for full article text. Optional SerpAPI enrichment supplements publicly available journalist-profile data; the current frontend does not expose a separate LLM summary, sentiment, related-story or timeline service.
 
----
+## Architecture
 
-## ✨ Features
+~~~text
+Next.js static export
+        |
+        | same-origin HTTP
+        v
+FastAPI / Uvicorn
+        |
+        +-- discovery job lifecycle
+        +-- source resolution
+        +-- API-first / HTML article discovery
+        +-- bounded Playwright extraction
+        +-- optional public byline enrichment
+        |
+        v
+Supabase Postgres (durable production jobs/results)
+SQLite (local development fallback)
+~~~
 
-### 📰 Intelligent News Discovery
-- Accepts a news outlet name or website URL
-- Automatically resolves the official website
-- Discovers relevant article pages
-- Extracts article metadata automatically
-- Supports large-scale article collection
+The frontend is exported by Next.js and served by FastAPI from the same Render service. This keeps the editorial UI and API on one origin and avoids a production CORS dependency.
 
-### 👤 Journalist Intelligence
-Extract detailed information about journalists, including:
+## Local development
 
-- Author name
-- Role / designation
-- Workplace
-- Biography
-- Email, when publicly available
-- Social media profiles
-- Article history
-- Sections and topics covered
+Requirements: Python 3.12, Node.js 26, npm, and a working Chromium installation.
 
-### 🌐 Google Enrichment
-Optional enrichment can retrieve additional publicly available information about authors, including:
+### 1. Clone and install the backend
 
-- Social media profiles
-- Professional information
-- Biographical information
-- Additional contact information when publicly available
-
-Google enrichment can be enabled or disabled from the dashboard.
-
-### ⚡ Parallel Web Scraping
-NewsTrace uses parallel scraping to process multiple articles efficiently rather than handling every page sequentially.
-
-This significantly improves performance when analyzing larger news outlets.
-
-### 📊 Interactive Journalist Dashboard
-The dashboard provides an interactive view of extracted intelligence, including:
-
-- Complete journalist data table
-- Article information
-- Social profiles
-- Author statistics
-- Coverage sections
-- Journalist-topic relationships
-- Enriched profile information
-
-### 🕸️ Author–Topic Network
-NewsTrace visualizes relationships between journalists and the topics or sections they cover.
-
-This makes it possible to identify patterns such as:
-
-- Which journalists cover specific topics
-- Which topics dominate an outlet
-- How journalists are distributed across sections
-- Author specialization patterns
-- Relationships between authors and coverage areas
-
-### 📤 Data Export
-Collected intelligence can be exported for further analysis.
-
-Supported formats include:
-
-- CSV
-- JSON
-
----
-
-# 🏗️ Architecture
-
-```text
-                    ┌─────────────────────┐
-                    │   NewsTrace UI      │
-                    │     Streamlit       │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   Website Resolver  │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   Article Discovery  │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Parallel Web Scraper │
-                    │      Playwright      │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────┴──────────┐
-                    ▼                     ▼
-             ┌──────────────┐     ┌───────────────┐
-             │ Author       │     │ Article       │
-             │ Extraction   │     │ Metadata      │
-             └──────┬───────┘     └───────┬───────┘
-                    │                      │
-                    └──────────┬───────────┘
-                               ▼
-                    ┌─────────────────────┐
-                    │  Google Enrichment  │
-                    │      (Optional)     │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Structured Journalist│
-                    │       Dataset       │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────┴──────────┐
-                    ▼                     ▼
-             ┌──────────────┐     ┌───────────────┐
-             │ Data Table   │     │ Author-Topic  │
-             │              │     │ Network       │
-             └──────────────┘     └───────────────┘
-```
-
----
-
-# 🛠️ Tech Stack
-
-| Technology | Purpose |
-|---|---|
-| **Python** | Core application |
-| **Streamlit** | Interactive dashboard |
-| **Playwright** | Browser automation & web scraping |
-| **BeautifulSoup** | HTML parsing |
-| **Pandas** | Data processing & analysis |
-| **Google / SERP API** | Optional journalist enrichment |
-| **Supabase** | Optional backend data storage |
-
----
-
-# 🚀 Installation
-
-### 1. Clone the repository
-
-```bash
+~~~bash
 git clone https://github.com/Areeb-coder/NewsTrace.git
 cd NewsTrace
-```
 
-### 2. Create a virtual environment
+python -m venv .venv
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# macOS / Linux:
+# source .venv/bin/activate
 
-```bash
-python -m venv venv
-```
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+~~~
 
-Activate it on Windows:
+### 2. Start FastAPI
 
-```powershell
-venv\Scripts\activate
-```
+~~~bash
+uvicorn backend.main:app --reload --port 8000
+~~~
 
-On macOS/Linux:
+The API is available at [http://localhost:8000](http://localhost:8000). Health: [/api/health](http://localhost:8000/api/health). API documentation: [/docs](http://localhost:8000/docs).
 
-```bash
-source venv/bin/activate
-```
+### 3. Start Next.js
 
-### 3. Install dependencies
+In a second terminal:
 
-```bash
-pip install -r requirements.txt
-```
+~~~bash
+cd frontend
+npm install
+~~~
 
-### 4. Install Playwright
+Windows PowerShell:
 
-```bash
-playwright install chromium
-```
+~~~powershell
+$env:NEXT_PUBLIC_API_BASE_URL = "http://localhost:8000"
+npm run dev
+~~~
 
----
+macOS / Linux:
 
-# ⚙️ Configuration
+~~~bash
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 npm run dev
+~~~
 
-Create a `.env` file in the project root.
+Open [http://localhost:3000](http://localhost:3000).
 
-Example:
+For local development, jobs are stored in `data/newstrace.sqlite3`. SQLite is not a production durability strategy on Render's free filesystem.
 
-```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_key
-SERP_API_KEY=your_serpapi_key
-```
+## Production configuration
 
-`SERP_API_KEY` is optional and is only required when Google enrichment is enabled.
+Production uses the single FastAPI/Next.js Docker service defined in `render.yaml` and `Dockerfile.web`.
 
-**Never commit your `.env` file or expose API keys publicly.**
+**Render plan warning:** the committed Blueprint currently sets `plan: free` to keep previews/testing cost-free. Render Free web services are not intended for production: they spin down after 15 minutes without inbound traffic, may restart at any time, and lose local filesystem changes when they spin down or restart. Supabase preserves completed job results, but a running in-process investigation can be marked `interrupted`. Before a real production launch, move the Render service to a paid always-on compute plan. Keep one instance/worker with the current in-process scheduler; a paid plan does not remove the need for a durable queue if jobs must survive restarts. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
----
+Apply the SQL migration in [`supabase/migrations/20261106_newstrace_discovery_jobs.sql`](supabase/migrations/20261106_newstrace_discovery_jobs.sql) to your Supabase project, then configure these Render environment variables:
 
-# ▶️ Running NewsTrace
+| Variable | Required | Purpose |
+|---|---:|---|
+| `SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-only access to the private job/results table |
+| `SERP_API_KEY` | No | Optional SerpAPI journalist enrichment |
+| `NEWSTRACE_MAX_ACTIVE_JOBS` | Set to `1` initially | Concurrent in-process investigations |
+| `NEWSTRACE_REQUIRE_DURABLE_STORE` | `true` in production | Fail startup rather than silently use ephemeral SQLite |
 
-Start the Streamlit dashboard:
+**Never expose `SUPABASE_SERVICE_ROLE_KEY` through a `NEXT_PUBLIC_*` variable or commit it to Git.** The service-role key must exist only in the backend environment. The legacy `SUPABASE_KEY` variable remains an optional compatibility fallback for the existing supplementary article/journalist tables.
 
-```bash
-streamlit run app.py
-```
+See [DEPLOYMENT.md](DEPLOYMENT.md) and [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for deployment and database steps.
 
-Then open:
+## API contract
 
-```text
-http://localhost:8501
-```
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/health` | API and job-store health |
+| POST | `/api/discovery/start` | Create a background investigation; returns `202` and `job_id` |
+| GET | `/api/discovery/{job_id}` | Job status, actual stage counts and event history |
+| GET | `/api/discovery/{job_id}/results` | Completed or partial article results |
+| GET | `/api/articles` | Search, filter, sort and paginate the archive |
+| GET | `/api/search` | Alias for article search |
+| GET | `/api/categories` | Section/category counts |
+| GET | `/api/sources` | Publication counts |
+| GET | `/api/journalists` | Aggregated journalist directory |
+| GET | `/api/coverage` | Article, journalist, publication and section metrics |
 
----
+The browser retains only the job ID it started in local storage, then reconnects directly to that job after refresh. The API does not expose a global list of all visitors' jobs.
 
-# 🔎 How It Works
+## Job lifecycle and operational boundaries
 
-### 1. Enter a News Outlet
+Statuses are `queued`, `running`, `complete`, `partial`, `failed` and `interrupted`. The backend stores real stage names, counts, event history, warnings, errors and results. It does not synthesize progress percentages across unrelated stages.
 
-Enter either:
+The first production release uses one FastAPI process and an in-process asynchronous worker/semaphore. This is intentionally simpler than adding Redis/Celery/Kafka before the product needs them. **Do not increase Uvicorn workers or scale to multiple API instances** with this scheduler: job execution and concurrency limits are process-local.
 
-```text
-CNN
-```
+Job state and article-result snapshots are stored in Supabase in production, so completed records survive a container replacement. If the API process restarts during an active investigation, the job is marked `interrupted`; its execution is not automatically resumed. The user can start it again. A durable external task queue is a future requirement if jobs must survive process restarts without interruption.
 
-or a complete website URL:
+The archive currently reads a bounded recent window of stored jobs (up to 100 investigations) and de-duplicates records when assembling the feed. This is appropriate for the current product scale; a larger archive should move filtering and pagination into indexed article-level database queries.
 
-```text
-https://www.example.com
-```
+## Research and responsible use
 
-NewsTrace resolves the outlet and begins discovering article pages.
+NewsTrace uses bounded request timeouts and concurrency, rejects obvious local/private URL targets, and retains source links. It cannot guarantee access to every publisher: sites may block automation, require authentication, use paywalls or return non-article interstitial pages. Respect publisher terms, applicable laws, robots policies and rate limits. The system must not bypass access controls.
 
-### 2. Discover Articles
+## Validation
 
-The scraper identifies article URLs and collects relevant metadata.
+GitHub Actions checks:
 
-### 3. Extract Journalists
+- Next.js TypeScript type-check and static production build.
+- Python compilation and discovery/parser/job-store tests.
+- FastAPI health, homepage and API route responses.
+- Browser navigation, discovery submission/result rendering, refresh recovery and responsive overflow.
 
-NewsTrace analyzes article pages to identify authors and extract information such as:
+These tests verify application integration and controlled test fixtures. They do not prove that every external publisher permits scraping.
 
-```text
-Author
-Title
-Section
-Publication Date
-Article URL
-```
-
-### 4. Enrich Author Profiles
-
-When enabled, the enrichment system searches publicly available sources for additional information.
-
-Possible results include:
-
-```text
-Biography
-Workplace
-Twitter / X
-LinkedIn
-Instagram
-Facebook
-Email
-```
-
-### 5. Analyze Coverage
-
-The collected data can then be analyzed through:
-
-- Journalist statistics
-- Section distribution
-- Author-topic relationships
-- Article counts
-- Journalist profiles
-
-### 6. Export Results
-
-The final dataset can be exported as CSV or JSON for additional analysis.
-
----
-
-# 📊 Example Intelligence
-
-NewsTrace can transform a collection of articles into structured intelligence such as:
-
-```text
-Journalist
-├── Name
-├── Role
-├── Workplace
-├── Biography
-├── Social Profiles
-│
-└── Coverage
-    ├── Politics
-    ├── Technology
-    ├── Business
-    └── International
-```
+## Recognition
 
-The author-topic network can then reveal relationships between journalists and the subjects they consistently cover.
-
----
-
-# 🎯 Use Cases
-
-NewsTrace can be useful for:
-
-- 📰 Journalism research
-- 🔎 Media intelligence
-- 👤 Journalist discovery
-- 📊 News coverage analysis
-- 🧠 Topic and author analysis
-- 🔗 Journalist relationship mapping
-- 📚 Research projects
-- 📈 Media monitoring
-- 🕵️ Investigative research
-
----
-
-# 📁 Project Structure
-
-```text
-NewsTrace/
-│
-├── dashboard.py
-├── main.py
-├── app.py
-├── deep_scraper.py
-│
-├── scrapers/
-│   └── ...
-│
-├── utils/
-│   └── ...
-│
-├── data/
-│   └── ...
-│
-├── test_google_enrichment.py
-│
-├── requirements.txt
-├── runtime.txt
-├── .env.example
-├── .gitignore
-│
-├── DASHBOARD_GUIDE.txt
-├── EXTRACTION_FLOW.txt
-└── SUPABASE_SETUP.md
-```
-
----
-
-# 🔐 Privacy & Responsible Scraping
-
-NewsTrace is designed to work with publicly accessible web information.
-
-Users should:
-
-- Respect website terms of service
-- Follow applicable robots.txt and scraping policies
-- Avoid excessive request rates
-- Respect copyright and data protection laws
-- Only collect information they are legally permitted to process
-- Avoid storing sensitive personal information unnecessarily
-
----
-
-# 🧩 Troubleshooting
-
-### No articles found
-
-Try:
-
-- Using the full website URL
-- Increasing the maximum article count
-- Checking the website's accessibility
-- Verifying your internet connection
-
-### Scraping is slow
-
-Try reducing the maximum number of articles or checking your network connection.
-
-### Google enrichment isn't working
-
-Verify that:
-
-```env
-SERP_API_KEY=your_key
-```
-
-is correctly configured and that Google enrichment is enabled in the dashboard.
-
-### Playwright errors
-
-Run:
-
-```bash
-playwright install chromium
-```
-
-again to ensure the required browser is installed.
-
----
-
-# 📜 License
-
-This project currently does not specify an open-source license.
-
-If you intend to allow others to legally reuse, modify, or distribute the project, consider adding an appropriate license.
-
----
-
-## Built With
-
-**Python · Streamlit · Playwright · BeautifulSoup · Pandas · Supabase**
-
-
-## 🗞️ Interface & Experience
-
-NewsTrace uses a **vintage newspaper / digital editorial** design system rather than a generic SaaS dashboard:
-
-- Newspaper masthead with edition date, issue marker and editorial navigation.
-- Warm parchment, charcoal ink, muted sepia and restrained oxblood accents.
-- Cormorant Garamond display typography, Source Sans 3 reading text and IBM Plex Mono metadata.
-- Asymmetric lead-story layout, ruled story columns, thin dividers and subtle paper grain.
-- Publisher lead images extracted from Open Graph, Twitter image metadata or article figures, where available.
-- Grayscale/sepia image treatment, restrained masthead motion, headline hover details and reduced-motion support.
-- A source-linked front page plus dedicated **Coverage & analysis**, **Journalist directory** and **Search the archive** views.
-- Responsive newspaper columns that reflow into a readable single-column edition on mobile.
-
-The design borrows principles from The Economist, The Guardian's interactive journalism, The Pudding's visual essays, the Library of Congress newspaper guides, The Public Domain Review and Awwwards editorial/typography collections. These references informed hierarchy and interaction; NewsTrace retains its own brand and workflow.
-
-See [DESIGN.md](DESIGN.md) for the design rationale and references.
-
-## 🚀 Cloud Deployment
-
-NewsTrace is a Streamlit application that uses Playwright/Chromium for scraping. For a production deployment, use a Docker-capable host such as **Render** rather than a static-site host.
-
-- The repository includes a `Dockerfile` and `render.yaml` for Render Blueprint deployment.
-- Follow [DEPLOYMENT.md](DEPLOYMENT.md) for setup instructions and optional environment variables.
-- Vercel and GitHub Pages are not drop-in hosts for this persistent Streamlit + Chromium application. GitHub is the source-code host; it does not run the app by itself.
-
+**Runner-Up — Hack of Thrones Hackathon**, organized by Google Developer Group (GDG) JMI.

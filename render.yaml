@@ -1,11 +1,20 @@
 services:
+  # One combined service. Free is for preview/testing only; switch to paid always-on compute before production.
   - type: web
     name: newstrace
     runtime: docker
     plan: free
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./Dockerfile.web
     dockerContext: .
-    healthCheckPath: /_stcore/health
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: NEWSTRACE_MAX_ACTIVE_JOBS
+        value: "1"
+      - key: NEWSTRACE_REQUIRE_DURABLE_STORE
+        value: "true"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

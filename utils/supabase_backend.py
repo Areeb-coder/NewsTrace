@@ -12,8 +12,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Supabase credentials (set in .env file)
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+# Prefer the private service-role credential on the server. The anon key is
+# retained as a compatibility fallback for projects with explicit RLS policies.
+SUPABASE_KEY = (
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    or os.getenv("SUPABASE_KEY", "").strip()
+)
 
 
 def get_supabase_client() -> Client:

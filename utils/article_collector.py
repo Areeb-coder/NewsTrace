@@ -3,7 +3,7 @@ Bounded article discovery for news websites.
 
 The collector probes lightweight JSON APIs first and falls back to a bounded
 Playwright crawl. Progress callbacks are optional so this module can also be
-used outside Streamlit.
+used by API and command-line callers.
 """
 
 import asyncio
@@ -169,6 +169,7 @@ async def _get_next_page_hrefs(page):
         return []
 
 
+
 def is_section_page(url, base_domain):
     """Identify section pages worth following during a bounded crawl."""
     if not same_domain(url, base_domain):
@@ -211,10 +212,22 @@ async def collect_article_urls(
     site_origin = f"{parsed_start.scheme}://{parsed_start.netloc}"
 
     _notify(progress_callback, "API discovery", 0, 7, "Checking common publication API endpoints")
-    api_data = try_api_scraping(
+    # The API probe uses synchronous requests. Running it directly here
+    # blocks the asyncio event loop and prevents live job progress from being
+    # delivered while the publisher endpoints are being checked.
+    loop = asyncio.get_running_loop()
+
+    def forward_api_progress(stage, current, total, detail):
+        if progress_callback:
+            loop.call_soon_threadsafe(
+                _notify, progress_callback, stage, current, total, detail
+            )
+
+    api_data = await asyncio.to_thread(
+        try_api_scraping,
         site_origin,
         max_articles,
-        progress_callback=progress_callback,
+        progress_callback=forward_api_progress,
     )
 
     if api_data:
