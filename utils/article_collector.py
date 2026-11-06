@@ -287,94 +287,95 @@ async def crawl_sections_parallel(
                     f"Visiting page {len(visited_pages)}/{max_pages}: {current_url}",
                 )
 
-                browser_error = None
-                browser_loaded = False
-                link_base = current_url
-                hrefs = []
                 try:
-                    response = await page.goto(
-                        current_url,
-                        timeout=navigation_timeout_ms,
-                        wait_until="domcontentloaded",
-                    )
-                    if response is not None and response.status >= 400:
-                        raise RuntimeError(f"Browser HTTP {response.status}")
-
-                    hrefs = await page.locator("a[href]").evaluate_all(
-                        "(anchors) => anchors.map((anchor) => anchor.href)"
-                    )
-                    browser_loaded = True
-                except Exception as exc:
-                    browser_error = f"{type(exc).__name__}: {exc}"
+                    browser_error = None
+                    browser_loaded = False
+                    link_base = current_url
+                    hrefs = []
                     try:
-                        link_base, listing_html = await asyncio.to_thread(
-                            _fetch_listing_html, current_url
+                        response = await page.goto(
+                            current_url,
+                            timeout=navigation_timeout_ms,
+                            wait_until="domcontentloaded",
                         )
-                        listing_soup = BeautifulSoup(listing_html, "lxml")
-                        hrefs = [
-                            urljoin(link_base, anchor.get("href"))
-                            for anchor in listing_soup.select("a[href]")
-                        ]
-                        _notify(
-                            progress_callback,
-                            len(visited_pages),
-                            max_pages,
-                            f"Browser listing failed; HTTP fallback recovered {len(hrefs)} links",
+                        if response is not None and response.status >= 400:
+                            raise RuntimeError(f"Browser HTTP {response.status}")
+
+                        hrefs = await page.locator("a[href]").evaluate_all(
+                            "(anchors) => anchors.map((anchor) => anchor.href)"
                         )
-                    except Exception as fallback_exc:
-                        failed_pages += 1
-                        print(
-                            f"Listing page failed ({current_url}); "
-                            f"browser={browser_error}; http={type(fallback_exc).__name__}: {fallback_exc}"
-                        )
-                        continue
+                        browser_loaded = True
+                    except Exception as exc:
+                        browser_error = f"{type(exc).__name__}: {exc}"
+                        try:
+                            link_base, listing_html = await asyncio.to_thread(
+                                _fetch_listing_html, current_url
+                            )
+                            listing_soup = BeautifulSoup(listing_html, "lxml")
+                            hrefs = [
+                                urljoin(link_base, anchor.get("href"))
+                                for anchor in listing_soup.select("a[href]")
+                            ]
+                            _notify(
+                                progress_callback,
+                                len(visited_pages),
+                                max_pages,
+                                f"Browser listing failed; HTTP fallback recovered {len(hrefs)} links",
+                            )
+                        except Exception as fallback_exc:
+                            failed_pages += 1
+                            print(
+                                f"Listing page failed ({current_url}); "
+                                f"browser={browser_error}; http={type(fallback_exc).__name__}: {fallback_exc}"
+                            )
+                            continue
 
-                # Process links from either the browser or the HTTP fallback.
-                for href in hrefs:
-                    absolute = normalize_url(urljoin(link_base, href))
-                    if not absolute or not same_domain(absolute, homepage):
-                        continue
+                    # Process links from either the browser or the HTTP fallback.
+                    for href in hrefs:
+                        absolute = normalize_url(urljoin(link_base, href))
+                        if not absolute or not same_domain(absolute, homepage):
+                            continue
 
-                    if is_article_url(absolute, homepage):
-                        article_urls.add(absolute)
-                        if len(article_urls) >= target:
-                            break
-                    elif (
-                        is_section_page(absolute, homepage)
-                        and absolute not in queued_pages
-                        and absolute not in visited_pages
-                    ):
-                        queued_pages.add(absolute)
-                        pending.append(absolute)
-
-                # The HTTP fallback already supplied the link list. Only query
-                # Playwright for a next-page control when its navigation worked.
-                if browser_loaded:
-                    next_locator = page.locator(
-                        'a[rel="next"], a.next, a[aria-label*="next" i]'
-                    ).first
-                    next_href = (
-                        await next_locator.get_attribute("href", timeout=800)
-                        if await next_locator.count()
-                        else None
-                    )
-                    if next_href:
-                        next_url = normalize_url(urljoin(current_url, next_href))
-                        if (
-                            next_url
-                            and same_domain(next_url, homepage)
-                            and next_url not in queued_pages
-                            and next_url not in visited_pages
+                        if is_article_url(absolute, homepage):
+                            article_urls.add(absolute)
+                            if len(article_urls) >= target:
+                                break
+                        elif (
+                            is_section_page(absolute, homepage)
+                            and absolute not in queued_pages
+                            and absolute not in visited_pages
                         ):
-                            queued_pages.add(next_url)
-                            pending.append(next_url)
+                            queued_pages.add(absolute)
+                            pending.append(absolute)
 
-                _notify(
-                    progress_callback,
-                    len(visited_pages),
-                    max_pages,
-                    f"{len(article_urls)} article URLs found · {failed_pages} page failures · {len(pending)} queued",
-                )
+                    # The HTTP fallback already supplied the link list. Only query
+                    # Playwright for a next-page control when its navigation worked.
+                    if browser_loaded:
+                        next_locator = page.locator(
+                            'a[rel="next"], a.next, a[aria-label*="next" i]'
+                        ).first
+                        next_href = (
+                            await next_locator.get_attribute("href", timeout=800)
+                            if await next_locator.count()
+                            else None
+                        )
+                        if next_href:
+                            next_url = normalize_url(urljoin(current_url, next_href))
+                            if (
+                                next_url
+                                and same_domain(next_url, homepage)
+                                and next_url not in queued_pages
+                                and next_url not in visited_pages
+                            ):
+                                queued_pages.add(next_url)
+                                pending.append(next_url)
+
+                    _notify(
+                        progress_callback,
+                        len(visited_pages),
+                        max_pages,
+                        f"{len(article_urls)} article URLs found · {failed_pages} page failures · {len(pending)} queued",
+                    )
                 finally:
                     _notify(
                         progress_callback,
