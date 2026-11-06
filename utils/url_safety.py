@@ -8,6 +8,7 @@ that permits access to private infrastructure should enforce egress rules too.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import socket
@@ -181,7 +182,7 @@ async def install_public_network_guard(context) -> None:
             await route.abort()
             return
         try:
-            validate_public_http_url(target)
+            await asyncio.to_thread(validate_public_http_url, target)
         except Exception as exc:
             logger.warning(
                 "Blocked browser request to a non-public destination (%s): %s",
