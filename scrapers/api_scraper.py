@@ -6,6 +6,7 @@ Streamlit interface does not appear frozen while endpoints are probed.
 """
 
 import math
+import time
 import requests
 from urllib.parse import urlparse
 
@@ -44,8 +45,12 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
         "Accept": "application/json",
     })
 
+    probe_deadline = time.monotonic() + 12.0
     try:
         for index, api_url in enumerate(endpoints, start=1):
+            remaining = probe_deadline - time.monotonic()
+            if remaining <= 0:
+                break
             _notify(
                 progress_callback,
                 index - 1,
@@ -55,7 +60,11 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
             params = {"page": 1, "per_page": 100, "limit": 100, "size": 100}
 
             try:
-                response = session.get(api_url, params=params, timeout=(2.5, 3.5))
+                response = session.get(
+                    api_url,
+                    params=params,
+                    timeout=(min(1.2, remaining), min(1.8, remaining)),
+                )
                 content_type = response.headers.get("Content-Type", "").lower()
 
                 if response.status_code != 200 or "json" not in content_type:
@@ -89,7 +98,7 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
                         page_response = session.get(
                             api_url,
                             params=params,
-                            timeout=(2.5, 3.5),
+                            timeout=(1.2, 1.8),
                         )
                         if page_response.status_code != 200:
                             break
