@@ -1,19 +1,7 @@
 services:
+  # One production service: static Next.js export + FastAPI + Playwright worker.
   - type: web
     name: newstrace
-    runtime: docker
-    plan: free
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    healthCheckPath: /_stcore/health
-    envVars:
-      - key: PYTHONUNBUFFERED
-        value: "1"
-
-  # New Next.js + FastAPI web application. The original Streamlit service
-  # above remains available while the new application is verified.
-  - type: web
-    name: newstrace-web
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile.web
@@ -24,5 +12,9 @@ services:
         value: "1"
       - key: NEWSTRACE_MAX_ACTIVE_JOBS
         value: "1"
-      - key: NEWSTRACE_DB_PATH
-        value: /app/data/newstrace.sqlite3
+      - key: NEWSTRACE_REQUIRE_DURABLE_STORE
+        value: "true"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
