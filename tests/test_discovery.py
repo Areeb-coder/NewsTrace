@@ -12,6 +12,7 @@ from scrapers.article_scraper import (
     _extract_from_page,
     _extract_jsonld_author,
     _parse_article_html,
+    extract_image,
 )
 from utils.article_collector import (
     is_article_url,
@@ -133,6 +134,18 @@ class ApiResponseTests(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["title"], "WordPress headline")
 
+    def test_extracts_lead_image_from_api_record(self):
+        records = extract_articles_from_json({
+            "articles": [
+                {
+                    "title": "Illustrated headline",
+                    "url": "https://example.com/story",
+                    "image": {"url": "https://example.com/lead.jpg"},
+                }
+            ]
+        })
+        self.assertEqual(records[0]["image_url"], "https://example.com/lead.jpg")
+
 
 class ArticleParsingTests(unittest.TestCase):
     def test_article_without_author_is_retained(self):
@@ -239,6 +252,30 @@ class ArticleParsingTests(unittest.TestCase):
         article = _parse_article_html("https://example.com/story", html, diagnostics)
         self.assertIsNone(article)
         self.assertEqual(diagnostics["reason"], "anti_bot_challenge")
+
+    def test_extract_image_uses_open_graph_metadata(self):
+        html = """
+        <html><head>
+        <meta property="og:image" content="/images/lead-photo.jpg">
+        </head><body><article><h1>Lead story</h1></article></body></html>
+        """
+        image = extract_image(BeautifulSoup(html, "lxml"), "https://example.com/world/story")
+        self.assertEqual(image, "https://example.com/images/lead-photo.jpg")
+
+    def test_extract_image_falls_back_to_article_figure(self):
+        html = """
+        <html><body><article>
+          <figure><img data-src="/media/report.webp" alt="Report"></figure>
+        </article></body></html>
+        """
+        image = extract_image(BeautifulSoup(html, "lxml"), "https://example.com/story")
+        self.assertEqual(image, "https://example.com/media/report.webp")
+
+    def test_extract_image_rejects_non_http_urls(self):
+        html = '<html><head><meta property="og:image" content="javascript:alert(1)"></head><body></body></html>'
+        image = extract_image(BeautifulSoup(html, "lxml"), "https://example.com/story")
+        self.assertIsNone(image)
+
 
 
 if __name__ == "__main__":
