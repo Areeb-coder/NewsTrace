@@ -17,6 +17,10 @@ class FakeContext:
     def __init__(self):
         self.pages = []
 
+    async def route(self, pattern, callback):
+        self.route_pattern = pattern
+        self.route_callback = callback
+
     def set_default_navigation_timeout(self, value):
         self.navigation_timeout = value
 
