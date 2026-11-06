@@ -1,19 +1,14 @@
-# Keep the Playwright version in sync with the Docker base image.
+# Keep the Playwright version in sync with Dockerfile.web.
 playwright==1.64.1
-
-# Streamlit 1.66 provides the width="stretch" API used by dashboard.py.
-streamlit==1.66.0
 
 beautifulsoup4>=4.12.3,<5
 lxml>=5.3,<7
 pandas>=2.2.3,<4
-plotly>=5.24,<7
 requests>=2.32,<3
-networkx>=3.4,<4
 feedparser>=6.0.11,<7
 supabase>=2.10,<3
 python-dotenv>=1.0,<2
 
-# FastAPI API layer for the Next.js web application.
+# Next.js API service
 fastapi>=0.115,<1
 uvicorn[standard]>=0.34,<1
