@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  web-and-legacy-smoke-test:
+  web-fastapi-smoke-test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
