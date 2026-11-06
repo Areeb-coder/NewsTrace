@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: newstrace
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
