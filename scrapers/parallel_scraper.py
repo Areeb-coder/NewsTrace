@@ -100,7 +100,7 @@ async def scrape_articles_parallel(
             context.set_default_timeout(5000)
 
             async def worker(worker_number):
-                nonlocal failed_count, processed_count
+                nonlocal failed_count, processed_count, started_count
                 page = await context.new_page()
                 try:
                     while not stop_event.is_set():
