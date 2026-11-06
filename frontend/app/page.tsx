@@ -446,6 +446,7 @@ export default function HomePage() {
       if (event.key === "/" && !isEditing) {
         event.preventDefault();
         setDesk("archive");
+        window.setTimeout(() => archiveSearchRef.current?.focus(), 0);
       }
       if (event.key === "Escape") {
         if (selectedArticle) setSelectedArticle(null);
