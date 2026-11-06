@@ -1,4 +1,4 @@
-name: NewsTrace web and legacy deployment checks
+name: NewsTrace Next.js and FastAPI deployment checks
 
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
       - name: Compile Python source
         run: python -m compileall -q .
 
-      - name: Run discovery, parser and job-store regression tests
+      - name: Run discovery, parser, job-store and API regression tests
         run: python -m unittest discover -s tests -v
 
       - name: Start FastAPI and check API plus frontend
@@ -133,8 +133,8 @@ jobs:
                   if errors:
                       raise SystemExit("Browser runtime errors: " + " | ".join(errors[:4]))
 
-                  # Simulate a tab refresh while a server-side job is still
-                  # running. The new page must reconnect using persisted /api/jobs.
+                  # Simulate a tab refresh while a server-side job is running.
+                  # The browser should reconnect only to its own saved job ID.
                   resume_page = await browser.new_page(viewport={"width": 1280, "height": 900})
                   resume_job = {
                       "job_id": "resume-e2e-job",
@@ -161,13 +161,6 @@ jobs:
                       "finished_at": None,
                   }
 
-                  async def recent_jobs(route):
-                      await route.fulfill(
-                          status=200,
-                          content_type="application/json",
-                          body=json.dumps({"jobs": [resume_job], "count": 1}),
-                      )
-
                   async def running_status(route):
                       await route.fulfill(
                           status=200,
@@ -175,11 +168,14 @@ jobs:
                           body=json.dumps(resume_job),
                       )
 
-                  await resume_page.route("**/api/jobs*", recent_jobs)
                   await resume_page.route("**/api/discovery/resume-e2e-job", running_status)
                   await resume_page.goto("http://127.0.0.1:8000", wait_until="networkidle", timeout=30000)
+                  await resume_page.evaluate(
+                      "() => window.localStorage.setItem('newstrace:active-job', 'resume-e2e-job')"
+                  )
+                  await resume_page.reload(wait_until="networkidle", timeout=30000)
                   await resume_page.get_by_text(
-                      "Reconnected to the investigation already running on NewsTrace."
+                      "Reconnected to your investigation on NewsTrace."
                   ).wait_for()
                   await resume_page.locator(".job-stage").filter(
                       has_text="Article extraction"
@@ -282,34 +278,3 @@ jobs:
         if: failure()
         run: cat fastapi.log || true
 
-      - name: Start legacy Streamlit and check health endpoint
-        shell: bash
-        run: |
-          streamlit run app.py \
-            --server.address=127.0.0.1 \
-            --server.port=8501 \
-            --server.headless=true \
-            --browser.gatherUsageStats=false > streamlit.log 2>&1 &
-          echo $! > streamlit.pid
-
-          python - <<'PY'
-          import time
-          import requests
-
-          health_url = "http://127.0.0.1:8501/_stcore/health"
-          for attempt in range(60):
-              try:
-                  response = requests.get(health_url, timeout=2)
-                  if response.ok and response.text.strip().lower() == "ok":
-                      print("Legacy Streamlit health check passed.")
-                      break
-              except requests.RequestException:
-                  pass
-              time.sleep(1)
-          else:
-              raise SystemExit("Legacy Streamlit did not become healthy within 60 seconds.")
-          PY
-
-      - name: Show Streamlit logs on failure
-        if: failure()
-        run: cat streamlit.log || true
