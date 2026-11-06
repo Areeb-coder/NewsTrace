@@ -12,6 +12,8 @@ import time
 from collections import deque
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
+import requests
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from scrapers.api_scraper import try_api_scraping
@@ -121,6 +123,29 @@ def is_article_url(url, base_domain):
         return True
 
     return False
+
+
+def _fetch_listing_html(url):
+    """Try a bounded plain-HTTP listing fetch if Chromium cannot open a section."""
+    response = requests.get(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+        },
+        timeout=(3, 7),
+        allow_redirects=True,
+    )
+    content_type = response.headers.get("Content-Type", "").lower()
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP {response.status_code}")
+    if "html" not in content_type and not response.text.lstrip().lower().startswith(("<!doctype html", "<html")):
+        raise RuntimeError(f"Non-HTML listing response ({content_type or 'unknown content type'})")
+    return response.url, response.text
 
 
 def is_section_page(url, base_domain):
@@ -262,6 +287,8 @@ async def crawl_sections_parallel(
                     f"Visiting page {len(visited_pages)}/{max_pages}: {current_url}",
                 )
 
+                browser_error = None
+                hrefs = []
                 try:
                     response = await page.goto(
                         current_url,
@@ -269,12 +296,35 @@ async def crawl_sections_parallel(
                         wait_until="domcontentloaded",
                     )
                     if response is not None and response.status >= 400:
-                        failed_pages += 1
-                        continue
+                        raise RuntimeError(f"Browser HTTP {response.status}")
 
                     hrefs = await page.locator("a[href]").evaluate_all(
                         "(anchors) => anchors.map((anchor) => anchor.href)"
                     )
+                except Exception as exc:
+                    browser_error = f"{type(exc).__name__}: {exc}"
+                    try:
+                        final_url, listing_html = await asyncio.to_thread(
+                            _fetch_listing_html, current_url
+                        )
+                        listing_soup = BeautifulSoup(listing_html, "lxml")
+                        hrefs = [
+                            urljoin(final_url, anchor.get("href"))
+                            for anchor in listing_soup.select("a[href]")
+                        ]
+                        _notify(
+                            progress_callback,
+                            len(visited_pages),
+                            max_pages,
+                            f"Browser listing fetch failed; HTTP fallback recovered {len(hrefs)} links",
+                        )
+                    except Exception as fallback_exc:
+                        failed_pages += 1
+                        print(
+                            f"Listing page failed ({current_url}); "
+                            f"browser={browser_error}; http={type(fallback_exc).__name__}: {fallback_exc}"
+                        )
+                        continue
 
                     for href in hrefs:
                         absolute = normalize_url(urljoin(current_url, href))
