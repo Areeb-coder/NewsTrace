@@ -145,12 +145,10 @@ class ArticleParsingTests(unittest.TestCase):
         </script></head><body><article><h1>Example story</h1>
         <p>Story text that is long enough to count as a page body.</p></article></body></html>
         """
-        # The author object may be an @id reference. At minimum the article
-        # remains intact; direct Person nodes are covered by the next fixture.
         diagnostics = {}
         article = _parse_article_html("https://example.com/story", html, diagnostics)
         self.assertIsNotNone(article)
-        self.assertEqual(article["author"], "Unknown")
+        self.assertEqual(article["author"], "Asha Reporter")
 
     def test_jsonld_graph_with_embedded_person_author(self):
         html = """
@@ -169,6 +167,10 @@ class ArticleParsingTests(unittest.TestCase):
         """
         author = _extract_jsonld_author(BeautifulSoup(html, "lxml"))
         self.assertEqual(author, "Asha Reporter")
+
+    def test_legitimate_names_containing_generic_substrings_are_allowed(self):
+        from scrapers.article_scraper import validate_author
+        self.assertEqual(validate_author("Gavin Newsom", "Governor announces plan"), "Gavin Newsom")
 
     def test_access_challenge_is_not_saved_as_article(self):
         html = """
