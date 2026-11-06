@@ -1,11 +1,13 @@
 """Regression tests for NewsTrace discovery and article parsing."""
 
 import unittest
+from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 
 from scrapers.api_scraper import extract_articles_from_json
 from scrapers.article_scraper import (
+    _extract_from_page,
     _extract_jsonld_author,
     _parse_article_html,
 )
@@ -171,6 +173,36 @@ class ArticleParsingTests(unittest.TestCase):
     def test_legitimate_names_containing_generic_substrings_are_allowed(self):
         from scrapers.article_scraper import validate_author
         self.assertEqual(validate_author("Gavin Newsom", "Governor announces plan"), "Gavin Newsom")
+
+    def test_http_fallback_recovers_article_after_browser_403(self):
+        class BlockedResponse:
+            status = 403
+
+        class FakePage:
+            async def goto(self, *args, **kwargs):
+                return BlockedResponse()
+
+        html = """
+        <html><head><title>Fallback article</title></head>
+        <body><article><h1>Fallback article</h1>
+        <p>Article body returned by the standard HTTP request fallback.</p>
+        </article></body></html>
+        """
+        diagnostics = {}
+        with patch(
+            "scrapers.article_scraper._fetch_article_with_requests",
+            return_value=(200, "https://example.com/story", html, "text/html; charset=utf-8"),
+        ):
+            import asyncio
+            article = asyncio.run(
+                _extract_from_page(FakePage(), "https://example.com/story", diagnostics)
+            )
+
+        self.assertIsNotNone(article)
+        self.assertEqual(article["title"], "Fallback article")
+        self.assertEqual(article["author"], "Unknown")
+        self.assertEqual(diagnostics["method"], "requests_fallback")
+        self.assertEqual(diagnostics["browser_http_status"], 403)
 
     def test_access_challenge_is_not_saved_as_article(self):
         html = """
