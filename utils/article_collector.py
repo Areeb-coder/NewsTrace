@@ -172,6 +172,7 @@ async def collect_article_urls(
     max_articles=300,
     progress_callback=None,
     max_pages=18,
+    article_metadata_out=None,
 ):
     """
     Discover article URLs with hard limits and user-visible progress.
@@ -204,6 +205,10 @@ async def collect_article_urls(
             if absolute and same_domain(absolute, site_origin) and absolute not in seen:
                 seen.add(absolute)
                 api_urls.append(absolute)
+                if article_metadata_out is not None:
+                    record = dict(item)
+                    record["url"] = absolute
+                    article_metadata_out.append(record)
 
         if api_urls:
             _notify(
