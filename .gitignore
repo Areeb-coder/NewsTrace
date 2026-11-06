@@ -24,6 +24,8 @@ Thumbs.db
 
 # Secrets
 .env
+.env.*
+!.env.example
 .streamlit/secrets.toml
 
 # Local container / build output
