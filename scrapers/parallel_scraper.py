@@ -27,6 +27,14 @@ def _safe_host(url):
         return "unknown host"
 
 
+def _safe_path(url):
+    """Retain the path for diagnostics but never expose query strings/tokens."""
+    try:
+        return (urlparse(url).path or "/")[:140]
+    except Exception:
+        return "/"
+
+
 async def scrape_articles_parallel(
     article_urls,
     max_workers=6,
@@ -117,6 +125,7 @@ async def scrape_articles_parallel(
                                 if len(failure_samples) < 4:
                                     failure_samples.append({
                                         "host": _safe_host(url),
+                                        "path": _safe_path(url),
                                         "reason": reason,
                                         "detail": diagnostics.get("detail")
                                             or diagnostics.get("requests_error")
@@ -136,6 +145,7 @@ async def scrape_articles_parallel(
                             if len(failure_samples) < 4:
                                 failure_samples.append({
                                     "host": _safe_host(url),
+                                    "path": _safe_path(url),
                                     "reason": reason,
                                     "detail": str(exc)[:240],
                                 })
