@@ -13,3 +13,10 @@ __pycache__
 Thumbs.db
 data/*.csv
 data/*.json
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/npm-debug.log
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
