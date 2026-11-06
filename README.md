@@ -431,6 +431,19 @@ If you intend to allow others to legally reuse, modify, or distribute the projec
 **Python · Streamlit · Playwright · BeautifulSoup · Pandas · Supabase**
 
 
+## 🎛️ Interface & Experience
+
+The Streamlit interface is designed as a focused media-intelligence workspace:
+
+- A persistent workspace sidebar and clear investigation entry point.
+- A dark newsroom-inspired visual system with restrained mint accents, compact metadata and readable typography.
+- Separate **Overview**, **Coverage**, **Journalists** and **Dataset** workspaces.
+- Search and section filters for collected records, with CSV and JSON exports.
+- Coverage charts and an author–section relationship view.
+- Responsive layout adjustments and reduced-motion support.
+
+The interface prioritizes evidence, legibility and useful data exploration over decorative animation.
+
 ## 🚀 Cloud Deployment
 
 NewsTrace is a Streamlit application that uses Playwright/Chromium for scraping. For a production deployment, use a Docker-capable host such as **Render** rather than a static-site host.
