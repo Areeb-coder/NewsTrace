@@ -158,11 +158,13 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
     try:
         status_box.update(label="Discovering article URLs", state="running", expanded=True)
         start_url = discovery_url or url
+        api_article_metadata = []
         urls = await collect_article_urls(
             start_url,
             max_articles,
             progress_callback=update_progress,
             max_pages=18,
+            article_metadata_out=api_article_metadata,
         )
         results["stats"]["urls_found"] = len(urls)
 
@@ -217,6 +219,17 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
         results["stats"]["article_failures"] = extraction_diagnostics.get(
             "failed", max(0, len(urls) - len(articles_data))
         )
+
+        # Publisher API thumbnails are a fallback only; image metadata
+        # extracted from the article HTML takes precedence.
+        api_images = {
+            item.get("url"): item.get("image_url")
+            for item in api_article_metadata
+            if item.get("url") and item.get("image_url")
+        }
+        for article in articles_data:
+            if not article.get("image_url") and article.get("url") in api_images:
+                article["image_url"] = api_images[article["url"]]
 
         articles_df = pd.DataFrame(articles_data)
         if "author" not in articles_df.columns:
