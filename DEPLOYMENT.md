@@ -79,6 +79,8 @@ Open `/api/health`. A healthy production response reports `storage.backend = "su
 - **Homepage returns 503:** the Next.js static build did not produce `frontend/out/index.html`; inspect the Docker build logs.
 - **Investigation becomes interrupted after deploy/restart:** this is expected for an in-process worker. Completed job/results remain in Supabase; active execution is marked interrupted and can be retried.
 - **Publisher returns no results:** check job events and server logs. A successful application health check does not mean every publisher allows automated extraction.
+- **Source resolution appears slow:** publication-name lookup reports its search and domain-check stages and uses a bounded number of requests. Prefer a direct publication or section URL when the name lookup cannot identify the correct official site.
+- **Unsafe URL / redirect rejected:** NewsTrace checks DNS results and validates every HTTP redirect destination; Playwright requests to private or non-public addresses are aborted. This is defense in depth, not a replacement for network-level egress controls against DNS rebinding.
 - **Optional enrichment warning:** set `SERP_API_KEY` only if search enrichment is required.
 
 ## 6. Scaling boundary
