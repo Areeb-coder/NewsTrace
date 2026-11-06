@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.streamlit/secrets.toml
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.DS_Store
+Thumbs.db
+data/*.csv
+data/*.json
