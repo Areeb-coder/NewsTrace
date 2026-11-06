@@ -37,6 +37,7 @@ export type DiscoveryJob = {
   current: number;
   total: number;
   events: JobEvent[];
+  parameters: Record<string, string | number | boolean>;
   stats: Record<string, number | string | object>;
   warnings: string[];
   error?: string | null;
@@ -88,6 +89,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
+    signal: init?.signal ?? AbortSignal.timeout(25_000),
     cache: "no-store",
   });
   if (!response.ok) {
