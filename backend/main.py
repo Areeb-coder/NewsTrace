@@ -28,7 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from backend.investigation import run_investigation
-from backend.jobs import store
+from backend.jobs import ProgressThrottle, store
 from backend.source_resolver import resolve_outlet
 from utils.article_collector import normalize_url
 
@@ -137,12 +137,13 @@ async def _run_job(job_id: str, request: DiscoveryRequest, semaphore: asyncio.Se
                 f"Publication identified: {outlet_label}. Article discovery is starting.",
             )
 
+            progress_throttle = ProgressThrottle(min_interval_seconds=0.3)
+
             def on_progress(stage: str, current: int, total: int, detail: str) -> None:
-                # JobStore serializes writes with a lock and uses a short-lived
-                # SQLite connection for each update. Write synchronously so the
-                # final complete_job write cannot be overtaken by a queued
-                # progress callback and leave a completed task marked "running".
-                store.update_progress(job_id, stage, current, total, detail)
+                # Keep SQLite writes bounded during parallel extraction. Stage
+                # changes and final counts are always recorded immediately.
+                if progress_throttle.should_report(stage, current, total):
+                    store.update_progress(job_id, stage, current, total, detail)
 
             frame, stats, warnings = await run_investigation(
                 resolved_url,
