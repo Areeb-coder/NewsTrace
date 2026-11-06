@@ -42,6 +42,22 @@ class UrlNormalizationTests(unittest.TestCase):
             )
         )
 
+    def test_two_segment_section_headline_is_article(self):
+        self.assertTrue(
+            is_article_url(
+                "https://example.com/world/a-long-headline-about-the-latest-developments",
+                "https://example.com",
+            )
+        )
+
+    def test_root_level_headline_slug_is_article(self):
+        self.assertTrue(
+            is_article_url(
+                "https://example.com/a-long-breaking-news-headline-with-a-descriptive-slug",
+                "https://example.com",
+            )
+        )
+
     def test_category_navigation_is_not_article(self):
         self.assertFalse(
             is_article_url(
