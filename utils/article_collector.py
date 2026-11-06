@@ -141,7 +141,7 @@ async def collect_article_urls(
     website_url,
     max_articles=300,
     progress_callback=None,
-    max_pages=24,
+    max_pages=18,
 ):
     """
     Discover article URLs with hard limits and user-visible progress.
@@ -207,7 +207,7 @@ async def crawl_sections_parallel(
     target,
     max_pages=24,
     progress_callback=None,
-    navigation_timeout_ms=10000,
+    navigation_timeout_ms=8000,
 ):
     """Crawl the homepage and discovered sections with strict page/time limits."""
     article_urls = set()
@@ -287,9 +287,14 @@ async def crawl_sections_parallel(
                             pending.append(absolute)
 
                     # Follow a single explicit next-page link, if available.
-                    next_href = await page.locator(
+                    next_locator = page.locator(
                         'a[rel="next"], a.next, a[aria-label*="next" i]'
-                    ).first.get_attribute("href", timeout=1500)
+                    ).first
+                    next_href = (
+                        await next_locator.get_attribute("href", timeout=800)
+                        if await next_locator.count()
+                        else None
+                    )
                     if next_href:
                         next_url = normalize_url(urljoin(current_url, next_href))
                         if (
