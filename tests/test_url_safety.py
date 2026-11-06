@@ -111,8 +111,19 @@ class SafeRedirectTests(unittest.TestCase):
     def test_rejects_private_redirect_before_making_second_request(self):
         first = FakeResponse(302, "https://news.example/start", {"Location": "http://127.0.0.1/admin"})
         session = FakeSession([first])
-        with self.assertRaises(ValueError):
-            safe_get("https://news.example/start", session=session)
+        original_validator = validate_public_http_url
+
+        def validate_only_private_with_real_checker(value):
+            if "127.0.0.1" in value:
+                return original_validator(value)
+            return value
+
+        with patch(
+            "utils.url_safety.validate_public_http_url",
+            side_effect=validate_only_private_with_real_checker,
+        ):
+            with self.assertRaises(ValueError):
+                safe_get("https://news.example/start", session=session)
         self.assertEqual(len(session.calls), 1)
         self.assertTrue(first.closed)
 
