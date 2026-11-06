@@ -160,9 +160,20 @@ function LeadStory({
           className="lead-photo photo-frame"
           aria-label={"Open " + article.title}
           onClick={() => onOpen(article)}
-          style={{ padding: 0, borderRadius: 0, cursor: "pointer" }}
+          style={{ padding: 0, borderRadius: 0, cursor: "pointer", width: "100%" }}
         >
-          <ArticlePhoto article={article} lead />
+          {safeExternalUrl(article.image_url) ? (
+            <img
+              src={safeExternalUrl(article.image_url)}
+              alt={article.title || "Article lead image"}
+              loading="lazy"
+            />
+          ) : (
+            <div className="photo-placeholder">N</div>
+          )}
+          <span className="photo-caption">
+            {safeExternalUrl(article.image_url) ? "PUBLISHER IMAGE" : "NEWS TRACE / NO IMAGE ON SOURCE"}
+          </span>
         </button>
       </article>
     </>
