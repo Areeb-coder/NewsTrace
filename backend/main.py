@@ -137,16 +137,12 @@ async def _run_job(job_id: str, request: DiscoveryRequest, semaphore: asyncio.Se
                 f"Publication identified: {outlet_label}. Article discovery is starting.",
             )
 
-            loop = asyncio.get_running_loop()
-
             def on_progress(stage: str, current: int, total: int, detail: str) -> None:
-                # The API-first HTTP probe can call this from a worker thread.
-                # Serialize all job-store writes through the event loop.
-                if loop.is_closed():
-                    return
-                loop.call_soon_threadsafe(
-                    store.update_progress, job_id, stage, current, total, detail
-                )
+                # JobStore serializes writes with a lock and uses a short-lived
+                # SQLite connection for each update. Write synchronously so the
+                # final complete_job write cannot be overtaken by a queued
+                # progress callback and leave a completed task marked "running".
+                store.update_progress(job_id, stage, current, total, detail)
 
             frame, stats, warnings = await run_investigation(
                 resolved_url,
