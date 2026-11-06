@@ -1,8 +1,7 @@
 """NewsTrace FastAPI application.
 
-The API owns the discovery job lifecycle and serves the exported Next.js app
-from the same origin in production. The original Streamlit entry points remain
-available during the migration.
+The API owns the durable discovery job lifecycle and serves the exported
+Next.js editorial application from the same origin in production.
 """
 
 from __future__ import annotations
@@ -479,7 +478,7 @@ async def categories() -> dict[str, Any]:
 @app.get("/api/sources")
 async def sources() -> dict[str, Any]:
     source_counts: dict[str, int] = {}
-    for item in _all_articles():
+    for item in await asyncio.to_thread(_all_articles):
         outlet = str(item.get("outlet") or "Unknown source")
         source_counts[outlet] = source_counts.get(outlet, 0) + 1
     ordered = sorted(source_counts.items(), key=lambda entry: (-entry[1], entry[0].casefold()))
