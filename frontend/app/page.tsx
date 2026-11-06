@@ -445,24 +445,26 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
-    api<{ jobs: DiscoveryJob[] }>("/api/jobs?limit=20")
-      .then(({ jobs }) => {
-        if (cancelled || jobInteractionRef.current) return;
-        const resumable = (jobs || []).find(
-          (job) => job.status === "queued" || job.status === "running",
-        );
-        if (!resumable) return;
+    // Resume only the job this browser started. Never expose a global list of
+    // every visitor's investigations through an unauthenticated endpoint.
+    const savedJobId = window.localStorage.getItem("newstrace:active-job");
+    if (!savedJobId) return;
 
-        // A job continues on the API process if the visitor refreshes this
-        // tab. Reattach to its persisted job ID rather than losing its status.
+    api<DiscoveryJob>("/api/discovery/" + encodeURIComponent(savedJobId))
+      .then((job) => {
+        if (cancelled || jobInteractionRef.current) return;
+        if (job.status === "failed" || job.status === "interrupted") {
+          window.localStorage.removeItem("newstrace:active-job");
+          return;
+        }
         jobInteractionRef.current = true;
-        setActiveJob(resumable);
-        setActiveJobId(resumable.job_id);
+        setActiveJob(job);
+        setActiveJobId(job.job_id);
         setShowDiscovery(false);
-        setToast("Reconnected to the investigation already running on NewsTrace.");
+        setToast("Reconnected to your investigation on NewsTrace.");
       })
       .catch(() => {
-        // The page and archive remain usable when job history is unavailable.
+        if (!cancelled) window.localStorage.removeItem("newstrace:active-job");
       });
     return () => { cancelled = true; };
   }, []);
@@ -532,9 +534,11 @@ export default function HomePage() {
           });
           setToast(result.articles.length + " article records are ready in the edition.");
           setActiveJobId("");
+          window.localStorage.removeItem("newstrace:active-job");
           void refreshFacets();
         } else if (job.status === "failed" || job.status === "interrupted") {
           setActiveJobId("");
+          window.localStorage.removeItem("newstrace:active-job");
         } else {
           timer = window.setTimeout(poll, 1600);
         }
@@ -621,6 +625,7 @@ export default function HomePage() {
           enable_google: enableGoogle,
         }),
       });
+      window.localStorage.setItem("newstrace:active-job", response.job_id);
       setActiveJobId(response.job_id);
       const initial = await api<DiscoveryJob>("/api/discovery/" + response.job_id);
       setActiveJob(initial);
@@ -786,10 +791,16 @@ export default function HomePage() {
             setEnableGoogle(Boolean(parameters.enable_google));
             setActiveJob(null);
             setActiveJobId("");
+            window.localStorage.removeItem("newstrace:active-job");
             setJobWarnings([]);
             setShowDiscovery(true);
           }}
-          onDismiss={() => { setActiveJob(null); setActiveJobId(""); setJobWarnings([]); }}
+          onDismiss={() => {
+            setActiveJob(null);
+            setActiveJobId("");
+            window.localStorage.removeItem("newstrace:active-job");
+            setJobWarnings([]);
+          }}
         />
       ) : null}
 
