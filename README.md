@@ -8,6 +8,15 @@ Instead of manually searching through hundreds of articles and author pages, New
 
 ---
 
+## 🏆 Hackathon Recognition
+
+**Runner-Up — Hack of Thrones Hackathon**  
+Organized by **Google Developer Group (GDG) JMI**
+
+NewsTrace was developed and presented as the project that secured the **Runner-Up** position at the Hack of Thrones hackathon organized by GDG JMI.
+
+---
+
 ## ✨ Features
 
 ### 📰 Intelligent News Discovery
