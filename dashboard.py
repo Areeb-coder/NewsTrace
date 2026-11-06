@@ -19,9 +19,11 @@ import os
 import re
 import time
 from html import escape
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # Page Config
-st.set_page_config(page_title="NewsTrace · Media Intelligence", page_icon="🔎", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="NewsTrace — The Digital News Chronicle", page_icon="N", layout="wide", initial_sidebar_state="collapsed")
 
 # (Landing page removed; app opens directly on the dashboard)
 
@@ -437,7 +439,7 @@ def create_chart(df):
         orientation='h',
         text=counts.values,
         texttemplate='%{text}',
-        marker=dict(color='#67DDB5', line=dict(color='rgba(103,221,181,0.18)', width=1)),
+        marker=dict(color='#8B302B', line=dict(color='rgba(139,48,43,0.18)', width=1)),
         hovertemplate='%{y}: %{x} articles<extra></extra>'
     )])
     
@@ -446,9 +448,9 @@ def create_chart(df):
         height=400,
         showlegend=False,
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#DCE7F2', family='Inter, ui-sans-serif, sans-serif'),
-        xaxis=dict(title='Articles', tickmode='linear', dtick=1, gridcolor='rgba(168,185,205,0.12)', zeroline=False, color='#9BAFC3'),
-        yaxis=dict(title='', autorange='reversed', color='#DCE7F2'),
+        font=dict(color='#2B241E', family='Source Sans 3, Georgia, serif'),
+        xaxis=dict(title='Articles', tickmode='linear', dtick=1, gridcolor='rgba(74,61,45,0.12)', zeroline=False, color='#675C4E'),
+        yaxis=dict(title='', autorange='reversed', color='#2B241E'),
         margin=dict(l=150, r=20, t=40, b=40)
     )
     return fig
@@ -512,7 +514,7 @@ def create_author_section_network(df, max_authors=40):
 
     edge_trace = go.Scatter(
         x=edge_x, y=edge_y,
-        line=dict(width=1.5, color='rgba(103,221,181,0.30)'),  # Increased width and opacity
+        line=dict(width=1.25, color='rgba(111,77,61,0.38)'),  # Increased width and opacity
         hoverinfo='none', mode='lines'
     )
 
@@ -524,7 +526,7 @@ def create_author_section_network(df, max_authors=40):
 
     section_trace = go.Scatter(
         x=sx, y=sy, mode='markers+text',
-        marker=dict(size=18, color='rgba(113,151,255,0.92)', line=dict(color='rgba(235,242,250,0.8)', width=1)),
+        marker=dict(size=18, color='rgba(139,48,43,0.90)', line=dict(color='rgba(242,235,221,0.9)', width=1)),
         text=sections, textposition='top center',
         hovertext=stext, hoverinfo='text',
         name='Sections'
@@ -542,7 +544,7 @@ def create_author_section_network(df, max_authors=40):
 
     author_trace = go.Scatter(
         x=ax, y=ay, mode='markers',
-        marker=dict(size=asize, color='rgba(103,221,181,0.92)', line=dict(color='rgba(235,242,250,0.8)', width=1)),
+        marker=dict(size=asize, color='rgba(67,73,61,0.88)', line=dict(color='rgba(242,235,221,0.9)', width=1)),
         hovertext=atext, hoverinfo='text',
         name='Authors'
     )
@@ -553,7 +555,7 @@ def create_author_section_network(df, max_authors=40):
         xaxis=dict(showgrid=False, zeroline=False, visible=False),
         yaxis=dict(showgrid=False, zeroline=False, visible=False),
         showlegend=False, height=520, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#DCE7F2', family='Inter, ui-sans-serif, sans-serif'),
+        font=dict(color='#2B241E', family='Source Sans 3, Georgia, serif'),
         margin=dict(l=20, r=20, t=50, b=20)
     )
     return fig
@@ -570,8 +572,8 @@ def display_journalist_profiles(df):
     profiles = []
     for author, group in author_groups:
         profile = {
-            '👤 Name': author,
-            '📰 Articles': len(group)
+            'Name': author,
+            'Articles': len(group)
         }
         
         # Add role if available
@@ -604,7 +606,7 @@ def display_journalist_profiles(df):
         profiles.append(profile)
     
     # Sort by article count
-    profiles_df = pd.DataFrame(profiles).sort_values('📰 Articles', ascending=False).head(15)
+    profiles_df = pd.DataFrame(profiles).sort_values('Articles', ascending=False).head(15)
     st.dataframe(profiles_df, width='stretch', height=500, hide_index=True)
 
 
@@ -615,205 +617,550 @@ def inject_newsroom_styles():
     st.markdown(
         """
         <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+
         :root {
-            --nt-bg: #080F1B;
-            --nt-panel: #101B2A;
-            --nt-panel-soft: #132235;
-            --nt-border: rgba(157, 180, 205, .14);
-            --nt-text: #EAF1F8;
-            --nt-muted: #93A6BA;
-            --nt-accent: #67DDB5;
-            --nt-blue: #87A9FF;
-            --nt-amber: #F2C879;
+            --paper: #F2EBDD;
+            --paper-light: #F8F3E9;
+            --paper-deep: #E5D9C5;
+            --ink: #29231D;
+            --ink-soft: #5B5145;
+            --ink-faint: #827665;
+            --rule: rgba(58, 46, 34, .34);
+            --rule-light: rgba(58, 46, 34, .16);
+            --red: #852F2A;
+            --red-deep: #67231F;
+            --olive: #4F5947;
+            --serif: 'Cormorant Garamond', 'Bodoni MT', Georgia, serif;
+            --sans: 'Source Sans 3', 'Segoe UI', sans-serif;
+            --mono: 'IBM Plex Mono', 'Courier New', monospace;
         }
 
-        html, body, [class*="css"] {
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        html, body, [class*="css"], .stApp {
+            font-family: var(--sans);
+            color: var(--ink);
+            background: var(--paper);
         }
         .stApp {
             background:
-                radial-gradient(900px 480px at 78% -8%, rgba(58, 112, 133, .16), transparent 62%),
-                radial-gradient(720px 420px at -8% 18%, rgba(37, 82, 125, .12), transparent 58%),
-                var(--nt-bg);
-            color: var(--nt-text);
+                radial-gradient(ellipse at 12% 5%, rgba(255,255,255,.45), transparent 34%),
+                radial-gradient(ellipse at 88% 24%, rgba(154,118,73,.07), transparent 30%),
+                repeating-linear-gradient(0deg, rgba(82,65,45,.018) 0, rgba(82,65,45,.018) 1px, transparent 1px, transparent 4px),
+                var(--paper);
         }
         [data-testid="stAppViewContainer"] { background: transparent; }
-        [data-testid="stHeader"] { background: rgba(8, 15, 27, .76); }
-        [data-testid="stToolbar"] { right: 1.2rem; }
+        [data-testid="stHeader"] { background: rgba(242,235,221,.9); }
+        [data-testid="stToolbar"] { right: 1rem; }
         .block-container {
-            max-width: 1480px;
-            padding-top: 2.1rem;
-            padding-bottom: 4rem;
+            max-width: 1370px;
+            padding: 1.1rem 2.2rem 4.5rem;
         }
         [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #0B1625 0%, #0A1421 100%);
-            border-right: 1px solid var(--nt-border);
+            background: #E8DECD;
+            border-right: 1px solid var(--rule);
         }
-        [data-testid="stSidebar"] > div:first-child { padding-top: 1.25rem; }
-        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: #A9B9C9; }
-        [data-testid="stSidebar"] hr { border-color: var(--nt-border); }
+        [data-testid="stSidebar"] > div:first-child { padding-top: 1rem; }
+        [data-testid="stSidebar"] p, [data-testid="stSidebar"] label { color: var(--ink-soft); }
+        [data-testid="stSidebar"] hr { border-color: var(--rule-light); }
 
-        .nt-brand {
-            display: flex; align-items: center; gap: 12px;
-            padding: 10px 4px 22px;
-        }
-        .nt-brand-mark {
-            width: 42px; height: 42px; border-radius: 13px;
-            display: grid; place-items: center;
-            color: #06140F; font-weight: 900; font-size: 19px;
-            background: linear-gradient(145deg, #8BF0CB, #40B995);
-            box-shadow: 0 8px 28px rgba(70, 202, 157, .18);
-        }
-        .nt-brand-name { color: #F1F6FB; font-size: 18px; font-weight: 750; letter-spacing: -.55px; }
-        .nt-brand-sub { color: #7F96AB; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 9px; letter-spacing: 1.45px; margin-top: 3px; }
-        .nt-side-label {
-            color: #627B92; text-transform: uppercase; letter-spacing: 1.55px;
-            font: 700 9px "JetBrains Mono", ui-monospace, monospace;
-            margin: 10px 0 8px;
-        }
-        .nt-side-item {
-            color: #B9C8D6; font-size: 13px; padding: 9px 10px;
-            border-radius: 9px; margin: 2px 0; background: rgba(255,255,255,.025);
-        }
-        .nt-side-item.active {
-            color: #DDF9EF; background: rgba(103,221,181,.09);
-            border: 1px solid rgba(103,221,181,.16);
-        }
-        .nt-side-note { color: #748BA0; font-size: 11px; line-height: 1.55; }
-
-        .nt-kicker {
-            color: #80A2B5; text-transform: uppercase; letter-spacing: 2px;
-            font: 700 10px "JetBrains Mono", ui-monospace, monospace;
-        }
-        .nt-hero {
-            position: relative; overflow: hidden;
-            border: 1px solid rgba(126, 166, 190, .17);
-            border-radius: 22px; padding: 27px 30px 26px;
-            background: linear-gradient(125deg, rgba(19, 36, 54, .96), rgba(12, 26, 41, .92));
-            box-shadow: 0 22px 65px rgba(0,0,0,.18);
-            margin-bottom: 22px;
-        }
-        .nt-hero:after {
-            content: ""; position: absolute; width: 290px; height: 290px;
-            right: -82px; top: -150px; border-radius: 50%;
-            border: 1px solid rgba(103,221,181,.13);
-            box-shadow: 0 0 0 28px rgba(103,221,181,.025), 0 0 0 58px rgba(103,221,181,.018);
+        /* Fine paper grain, kept light enough for long-form reading. */
+        .stApp::before {
+            content: "";
+            position: fixed;
+            inset: 0;
             pointer-events: none;
+            z-index: 0;
+            opacity: .13;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.92' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+            mix-blend-mode: multiply;
         }
-        .nt-hero-title {
-            color: #F3F7FB; font-size: clamp(27px, 3.4vw, 39px);
-            font-weight: 760; letter-spacing: -1.5px; line-height: 1.12;
-            margin: 10px 0 9px;
+        .block-container { position: relative; z-index: 1; }
+
+        .nt-masthead-wrap {
+            width: 100%;
+            margin: 0 auto 1.15rem;
+            border-top: 1px solid var(--rule);
+            border-bottom: 3px double var(--ink);
+            background: rgba(248,243,233,.28);
         }
-        .nt-hero-copy { max-width: 720px; color: #A6B8C8; font-size: 13px; line-height: 1.7; }
-        .nt-hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-        .nt-chip {
-            color: #C4D2DF; border: 1px solid rgba(167,190,212,.17);
-            background: rgba(4,14,25,.30); border-radius: 999px;
-            padding: 5px 10px; font: 10px "JetBrains Mono", ui-monospace, monospace;
+        .nt-topline {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0 7px;
+            color: var(--ink-soft);
+            border-bottom: 1px solid var(--rule-light);
+            font: 10px var(--mono);
+            letter-spacing: .1em;
+            text-transform: uppercase;
         }
-        .nt-status {
-            display: inline-flex; align-items: center; gap: 7px;
-            border-radius: 999px; padding: 6px 10px;
-            border: 1px solid rgba(103,221,181,.22);
-            background: rgba(103,221,181,.08); color: #A6EBD1;
-            font: 10px "JetBrains Mono", ui-monospace, monospace;
-            letter-spacing: .4px; white-space: nowrap;
+        .nt-masthead {
+            text-align: center;
+            padding: 14px 0 11px;
         }
-        .nt-status-dot {
-            width: 6px; height: 6px; border-radius: 50%;
-            background: #67DDB5; box-shadow: 0 0 10px rgba(103,221,181,.7);
+        .nt-wordmark {
+            color: var(--ink);
+            font: 700 clamp(56px, 9.2vw, 118px)/.78 var(--serif);
+            letter-spacing: -.075em;
+            text-transform: uppercase;
+            white-space: nowrap;
         }
-        .nt-section-head { margin: 25px 0 12px; }
-        .nt-section-title { color: #EAF1F8; font-weight: 700; font-size: 17px; letter-spacing: -.35px; }
-        .nt-section-copy { color: var(--nt-muted); font-size: 11px; margin-top: 4px; }
-        .nt-overline {
-            color: #7892A9; font: 700 9px "JetBrains Mono", ui-monospace, monospace;
-            text-transform: uppercase; letter-spacing: 1.45px;
+        .nt-masthead-deck {
+            margin-top: 13px;
+            color: var(--red);
+            font: 600 11px var(--mono);
+            text-transform: uppercase;
+            letter-spacing: .34em;
         }
-        .nt-card {
-            border: 1px solid var(--nt-border); background: rgba(16, 27, 42, .82);
-            border-radius: 16px; padding: 17px 18px;
+        .nt-masthead-bottom {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding-top: 9px;
+            color: var(--ink-soft);
+            font: 9px var(--mono);
+            letter-spacing: .16em;
+            text-transform: uppercase;
         }
-        .nt-empty {
-            text-align: center; padding: 44px 22px; margin-top: 8px;
-            border-radius: 18px; border: 1px dashed rgba(145,174,199,.25);
-            background: rgba(16,27,42,.45);
+        .nt-nav {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 0;
+            border-top: 1px solid var(--rule);
+            border-bottom: 1px solid var(--rule);
+            margin-bottom: 1.15rem;
         }
-        .nt-empty-icon { font-size: 28px; margin-bottom: 10px; }
-        .nt-empty-title { color: #E7F0F7; font-size: 17px; font-weight: 700; }
-        .nt-empty-copy { color: #91A5B8; font-size: 12px; max-width: 500px; margin: 8px auto 0; line-height: 1.65; }
-        .nt-footer {
-            border-top: 1px solid var(--nt-border); margin-top: 36px; padding-top: 15px;
-            display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-            color: #70869B; font: 10px "JetBrains Mono", ui-monospace, monospace;
+        .nt-nav span {
+            color: var(--ink);
+            padding: 9px 18px 8px;
+            font: 600 10px var(--mono);
+            letter-spacing: .11em;
+            text-transform: uppercase;
+            border-right: 1px solid var(--rule-light);
+        }
+        .nt-nav span:last-child { border-right: 0; }
+        .nt-edition-label {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--rule);
+            color: var(--red);
+            font: 600 10px var(--mono);
+            letter-spacing: .17em;
+            text-transform: uppercase;
+        }
+        .nt-front-intro {
+            display: grid;
+            grid-template-columns: 1fr 220px;
+            gap: 26px;
+            align-items: end;
+            padding: 24px 0 19px;
+            border-bottom: 3px double var(--ink);
+        }
+        .nt-front-kicker {
+            color: var(--red);
+            font: 600 10px var(--mono);
+            letter-spacing: .18em;
+            text-transform: uppercase;
+        }
+        .nt-front-title {
+            margin: 7px 0 7px;
+            max-width: 1050px;
+            color: var(--ink);
+            font: 600 clamp(42px, 6vw, 80px)/.91 var(--serif);
+            letter-spacing: -.045em;
+        }
+        .nt-front-copy {
+            max-width: 740px;
+            margin-top: 9px;
+            color: var(--ink-soft);
+            font: 16px/1.55 var(--serif);
+        }
+        .nt-edition-note {
+            border-left: 1px solid var(--rule);
+            padding-left: 18px;
+            color: var(--ink-soft);
+            font: 11px/1.65 var(--mono);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+        .nt-edition-note strong {
+            display: block;
+            color: var(--red);
+            font: 600 23px/1.1 var(--serif);
+            letter-spacing: 0;
+            text-transform: none;
+            margin-bottom: 5px;
         }
 
+        .nt-section-cap {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: baseline;
+            margin: 26px 0 9px;
+            padding-bottom: 6px;
+            border-bottom: 2px solid var(--ink);
+        }
+        .nt-section-cap h2 {
+            margin: 0;
+            color: var(--ink);
+            font: 700 21px/1 var(--serif);
+            letter-spacing: -.015em;
+            text-transform: uppercase;
+        }
+        .nt-section-cap span {
+            color: var(--red);
+            font: 9px var(--mono);
+            letter-spacing: .15em;
+            text-transform: uppercase;
+        }
+        .nt-rule { border-top: 1px solid var(--rule); margin: 12px 0; }
+
+        .nt-lead {
+            display: grid;
+            grid-template-columns: minmax(0, 1.28fr) minmax(260px, .72fr);
+            gap: 0;
+            border-bottom: 1px solid var(--rule);
+            padding-bottom: 22px;
+        }
+        .nt-lead-copy {
+            padding: 4px 26px 4px 0;
+            border-right: 1px solid var(--rule);
+        }
+        .nt-story-section {
+            color: var(--red);
+            font: 600 9px var(--mono);
+            text-transform: uppercase;
+            letter-spacing: .17em;
+        }
+        .nt-lead-headline {
+            margin: 8px 0 9px;
+            color: var(--ink);
+            font: 600 clamp(32px, 4.3vw, 58px)/.94 var(--serif);
+            letter-spacing: -.035em;
+        }
+        .nt-lead-dek {
+            max-width: 760px;
+            color: var(--ink-soft);
+            font: 17px/1.5 var(--serif);
+            margin: 9px 0 13px;
+        }
+        .nt-byline {
+            color: var(--ink-faint);
+            font: 9px var(--mono);
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+        .nt-lead-media {
+            min-height: 250px;
+            margin: 3px 0 0 24px;
+            overflow: hidden;
+            position: relative;
+            background:
+                linear-gradient(135deg, rgba(75,63,50,.12), rgba(75,63,50,.02)),
+                repeating-linear-gradient(135deg, rgba(65,53,42,.08) 0, rgba(65,53,42,.08) 1px, transparent 1px, transparent 5px),
+                #D8CBB5;
+            border: 1px solid rgba(75,58,42,.35);
+        }
+        .nt-lead-media img, .nt-story-media img {
+            width: 100%;
+            height: 100%;
+            min-height: inherit;
+            display: block;
+            object-fit: cover;
+            filter: grayscale(100%) sepia(17%) contrast(1.13);
+            transition: filter .65s cubic-bezier(.2,.7,.2,1), transform .85s cubic-bezier(.2,.7,.2,1);
+        }
+        .nt-lead-media:hover img, .nt-story-card:hover .nt-story-media img {
+            filter: grayscale(65%) sepia(10%) contrast(1.17);
+            transform: scale(1.025);
+        }
+        .nt-image-caption {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            padding: 5px 8px;
+            color: #F7F0E4;
+            background: rgba(41,35,29,.82);
+            font: 8px var(--mono);
+            letter-spacing: .06em;
+            text-transform: uppercase;
+        }
+        .nt-no-image {
+            display: grid;
+            place-items: center;
+            height: 100%;
+            min-height: 250px;
+            color: rgba(54,43,33,.76);
+            background:
+                radial-gradient(circle at center, transparent 0 28%, rgba(92,68,45,.13) 28.4% 28.8%, transparent 29.2%),
+                repeating-linear-gradient(45deg, rgba(70,54,37,.045) 0, rgba(70,54,37,.045) 1px, transparent 1px, transparent 4px),
+                #D8CBB5;
+            font: 600 58px var(--serif);
+            letter-spacing: -.07em;
+        }
+        .nt-story-grid {
+            display: grid;
+            grid-template-columns: repeat(12, minmax(0,1fr));
+            grid-auto-flow: dense;
+            gap: 0;
+            border-bottom: 2px solid var(--ink);
+        }
+        .nt-story-card {
+            min-width: 0;
+            grid-column: span 4;
+            padding: 17px 17px 19px 0;
+            border-right: 1px solid var(--rule);
+            border-bottom: 1px solid var(--rule);
+            transition: background .35s ease;
+        }
+        .nt-story-card:nth-child(3n+2) { padding-left: 17px; }
+        .nt-story-card:nth-child(3n) {
+            padding-left: 17px;
+            padding-right: 0;
+            border-right: 0;
+        }
+        .nt-story-card:hover { background: rgba(255,255,255,.18); }
+        .nt-story-card.span-6 { grid-column: span 6; }
+        .nt-story-card.span-12 { grid-column: span 12; }
+        .nt-story-headline {
+            margin: 7px 0 7px;
+            color: var(--ink);
+            font: 600 clamp(22px, 2.5vw, 33px)/.98 var(--serif);
+            letter-spacing: -.025em;
+        }
+        .nt-story-dek {
+            margin: 7px 0 10px;
+            color: var(--ink-soft);
+            font: 14px/1.48 var(--serif);
+        }
+        .nt-story-media {
+            height: 150px;
+            margin: 11px 0 8px;
+            overflow: hidden;
+            border: 1px solid rgba(75,58,42,.35);
+            background:
+                repeating-linear-gradient(135deg, rgba(65,53,42,.07) 0, rgba(65,53,42,.07) 1px, transparent 1px, transparent 5px),
+                #D8CBB5;
+        }
+        .nt-story-media img { min-height: 150px; height: 150px; }
+        .nt-story-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px 11px;
+            color: var(--ink-faint);
+            font: 8px var(--mono);
+            letter-spacing: .04em;
+            text-transform: uppercase;
+        }
+        .nt-story-link {
+            color: inherit;
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: color .3s ease, border-color .3s ease;
+        }
+        .nt-story-link:hover { color: var(--red); border-color: var(--red); }
+
+        .nt-investigation-shell {
+            margin: 23px 0 18px;
+            padding: 16px 18px 12px;
+            border-top: 3px double var(--ink);
+            border-bottom: 1px solid var(--ink);
+            background: rgba(255,255,255,.18);
+        }
+        .nt-investigation-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 9px;
+        }
+        .nt-investigation-head h3 {
+            margin: 0;
+            color: var(--ink);
+            font: 600 28px/1 var(--serif);
+        }
+        .nt-investigation-head span {
+            color: var(--red);
+            font: 9px var(--mono);
+            letter-spacing: .14em;
+            text-transform: uppercase;
+        }
+
+        .nt-metric-label {
+            color: var(--red);
+            font: 9px var(--mono);
+            text-transform: uppercase;
+            letter-spacing: .1em;
+        }
         [data-testid="stMetric"] {
-            background: linear-gradient(145deg, rgba(19,34,51,.96), rgba(14,26,40,.96));
-            border: 1px solid var(--nt-border); border-radius: 15px;
-            padding: 17px 17px 14px; min-height: 112px;
+            background: rgba(255,255,255,.23);
+            border: 0;
+            border-top: 2px solid var(--ink);
+            border-bottom: 1px solid var(--rule);
+            border-radius: 0;
+            padding: 11px 13px 10px;
+            min-height: 92px;
         }
         [data-testid="stMetricLabel"] p {
-            color: #91A8BC !important; font-size: 11px !important;
-            letter-spacing: .25px;
+            color: var(--ink-soft) !important;
+            font: 9px var(--mono) !important;
+            text-transform: uppercase;
+            letter-spacing: .08em;
         }
         [data-testid="stMetricValue"] {
-            color: #EFF6FB !important; font-size: 26px !important;
-            font-weight: 740 !important; letter-spacing: -.8px;
+            color: var(--ink) !important;
+            font: 600 30px/1 var(--serif) !important;
+            letter-spacing: -.02em;
         }
-        [data-testid="stMetricDelta"] { font-size: 10px !important; }
-        [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] { gap: 1rem; }
+        [data-testid="stMetricDelta"] { color: var(--red) !important; font: 10px var(--mono) !important; }
 
-        [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
-        [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-            background: #0D1928 !important; border-color: rgba(143,169,193,.22) !important;
-            color: #EAF1F8 !important; border-radius: 10px !important;
+        [data-testid="stTextInput"] label,
+        [data-testid="stSelectbox"] label,
+        [data-testid="stSlider"] label,
+        [data-testid="stCheckbox"] label {
+            color: var(--ink-soft) !important;
+            font: 10px var(--mono) !important;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+        [data-testid="stTextInput"] input,
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+            color: var(--ink) !important;
+            background: var(--paper-light) !important;
+            border: 1px solid var(--rule) !important;
+            border-radius: 0 !important;
         }
         [data-testid="stTextInput"] input:focus {
-            border-color: rgba(103,221,181,.65) !important;
-            box-shadow: 0 0 0 1px rgba(103,221,181,.18) !important;
+            border-color: var(--red) !important;
+            box-shadow: 0 0 0 1px rgba(133,47,42,.15) !important;
         }
-        [data-testid="stCheckbox"] label, [data-testid="stSlider"] label { color: #C1CFDB !important; }
         [data-testid="stExpander"] {
-            border: 1px solid var(--nt-border); border-radius: 12px;
-            background: rgba(13,25,40,.55);
+            border: 1px solid var(--rule-light);
+            border-radius: 0;
+            background: rgba(255,255,255,.16);
         }
         .stButton > button, [data-testid="stFormSubmitButton"] button, .stDownloadButton > button {
-            border-radius: 10px !important; min-height: 42px;
-            font-weight: 650 !important; transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+            min-height: 38px;
+            color: var(--paper-light) !important;
+            background: var(--red) !important;
+            border: 1px solid var(--red) !important;
+            border-radius: 0 !important;
+            font: 600 10px var(--mono) !important;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            transition: background .3s ease, transform .3s cubic-bezier(.2,.7,.2,1);
         }
-        [data-testid="stFormSubmitButton"] button[kind="primary"], .stButton > button[kind="primary"] {
-            color: #06150F !important; border: 1px solid #67DDB5 !important;
-            background: linear-gradient(135deg, #86EBC8, #53C9A4) !important;
-            box-shadow: 0 8px 22px rgba(66,196,149,.13);
+        .stButton > button:hover, [data-testid="stFormSubmitButton"] button:hover, .stDownloadButton > button:hover {
+            background: var(--red-deep) !important;
+            transform: translateY(-1px);
+            border-color: var(--red-deep) !important;
         }
-        .stButton > button:hover, [data-testid="stFormSubmitButton"] button:hover,
-        .stDownloadButton > button:hover { transform: translateY(-1px); border-color: rgba(103,221,181,.65) !important; }
+        .stDownloadButton > button {
+            color: var(--ink) !important;
+            background: transparent !important;
+            border-color: var(--rule) !important;
+        }
+        .stDownloadButton > button:hover {
+            color: var(--red) !important;
+            background: rgba(255,255,255,.35) !important;
+        }
+        [data-testid="stTabs"] [role="tablist"] {
+            gap: 0;
+            border-bottom: 2px solid var(--ink);
+        }
         [data-testid="stTabs"] button[role="tab"] {
-            color: #94A9BC; font-size: 12px; font-weight: 650;
-            padding: 11px 16px; border-radius: 9px 9px 0 0;
+            padding: 10px 17px;
+            color: var(--ink-soft);
+            font: 600 10px var(--mono);
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            border-radius: 0;
         }
         [data-testid="stTabs"] button[aria-selected="true"] {
-            color: #BFF4DD !important; border-bottom-color: #67DDB5 !important;
+            color: var(--red) !important;
+            background: rgba(255,255,255,.22);
+            border-bottom: 2px solid var(--red) !important;
         }
         [data-testid="stDataFrame"], [data-testid="stPlotlyChart"] {
-            border: 1px solid var(--nt-border); border-radius: 14px; overflow: hidden;
-            background: rgba(16,27,42,.62);
+            border: 1px solid var(--rule-light);
+            border-radius: 0;
+            background: rgba(255,255,255,.2);
         }
-        [data-testid="stAlert"] { border-radius: 12px; }
-        hr { border-color: var(--nt-border) !important; }
+        [data-testid="stStatusWidget"], [data-testid="stAlert"] { border-radius: 0 !important; }
+        [data-testid="stCaptionContainer"] { color: var(--ink-faint); }
+        hr { border-color: var(--rule) !important; }
+        .nt-footer {
+            margin-top: 36px;
+            padding: 11px 0 0;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            border-top: 3px double var(--ink);
+            color: var(--ink-faint);
+            font: 9px var(--mono);
+            letter-spacing: .1em;
+            text-transform: uppercase;
+        }
+        .nt-empty {
+            padding: 28px 16px;
+            text-align: center;
+            border-top: 1px solid var(--rule);
+            border-bottom: 1px solid var(--rule);
+            background: rgba(255,255,255,.16);
+        }
+        .nt-empty h3 {
+            color: var(--ink);
+            font: 600 27px/1.05 var(--serif);
+            margin: 0 0 6px;
+        }
+        .nt-empty p { color: var(--ink-soft); font: 14px/1.5 var(--serif); margin: 0; }
 
-        @media (max-width: 760px) {
-            .block-container { padding: 1.1rem .85rem 2.5rem; }
-            .nt-hero { padding: 22px 19px; border-radius: 17px; }
-            .nt-hero-title { font-size: 29px; }
-            [data-testid="stMetric"] { padding: 13px; min-height: 100px; }
-            [data-testid="stMetricValue"] { font-size: 22px !important; }
-            [data-testid="stTabs"] button[role="tab"] { padding: 9px 9px; font-size: 11px; }
+        @media (max-width: 900px) {
+            .block-container { padding: 1rem 1.2rem 3rem; }
+            .nt-front-intro { grid-template-columns: 1fr; }
+            .nt-edition-note { display: none; }
+            .nt-lead { grid-template-columns: 1fr; }
+            .nt-lead-copy { border-right: 0; padding-right: 0; }
+            .nt-lead-media { margin: 16px 0 0; min-height: 230px; }
+            .nt-story-card { grid-column: span 6; }
+            .nt-story-card:nth-child(3n) { padding-left: 0; padding-right: 17px; border-right: 1px solid var(--rule); }
+            .nt-story-card:nth-child(2n) { padding-left: 17px; padding-right: 0; border-right: 0; }
+            .nt-story-card:nth-child(3n+2) { padding-left: 17px; }
+        }
+        @media (max-width: 600px) {
+            .block-container { padding: .7rem .8rem 2.2rem; }
+            .nt-topline { font-size: 8px; }
+            .nt-wordmark { font-size: clamp(42px, 13vw, 67px); }
+            .nt-masthead-deck { font-size: 8px; letter-spacing: .2em; }
+            .nt-nav span { padding: 8px 9px; font-size: 8px; }
+            .nt-front-title { font-size: clamp(37px, 11vw, 53px); }
+            .nt-lead-headline { font-size: 38px; }
+            .nt-story-card, .nt-story-card.span-6, .nt-story-card.span-12 { grid-column: span 12; }
+            .nt-story-card, .nt-story-card:nth-child(2n), .nt-story-card:nth-child(3n), .nt-story-card:nth-child(3n+2) {
+                padding: 15px 0;
+                border-right: 0;
+            }
+            .nt-story-media { height: 185px; }
+            .nt-story-media img { height: 185px; }
+            [data-testid="stMetricValue"] { font-size: 25px !important; }
+            [data-testid="stTabs"] button[role="tab"] { padding: 8px 8px; font-size: 8px; }
         }
         @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+            *, *::before, *::after {
+                animation-duration: .01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: .01ms !important;
+                scroll-behavior: auto !important;
+            }
         }
         </style>
         """,
@@ -821,7 +1168,137 @@ def inject_newsroom_styles():
     )
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+def _local_edition_date():
+    try:
+        return datetime.now(ZoneInfo("Asia/Kolkata"))
+    except Exception:
+        return datetime.now()
+
+
+def _safe_url(value):
+    value = str(value or "").strip()
+    return value if value.startswith(("https://", "http://")) else ""
+
+
+def _date_label(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "DATE NOT REPORTED"
+    try:
+        parsed = pd.to_datetime(value, errors="coerce", utc=True)
+        if pd.isna(parsed):
+            return escape(str(value)[:36])
+        return parsed.strftime("%d %b %Y").upper()
+    except Exception:
+        return escape(str(value)[:36])
+
+
+def _article_section(row):
+    raw = row.get("section") if hasattr(row, "get") else None
+    value = str(raw or "GENERAL").strip()
+    return escape(value.upper()[:48])
+
+
+def _story_image(url, alt, lead=False):
+    safe_url = _safe_url(url)
+    class_name = "nt-lead-media" if lead else "nt-story-media"
+    if safe_url:
+        return (
+            f'<div class="{class_name}"><img src="{escape(safe_url, quote=True)}" '
+            f'alt="{escape(str(alt), quote=True)}" loading="lazy">'
+            '<span class="nt-image-caption">SOURCE IMAGE / EDITORIAL ARCHIVE</span></div>'
+        )
+    if lead:
+        return (
+            '<div class="nt-lead-media"><div class="nt-no-image">N</div>'
+            '<span class="nt-image-caption">NEWS TRACE / RECORD NO IMAGE</span></div>'
+        )
+    return ""
+
+
+def _story_card(row, variant=""):
+    title = escape(str(row.get("title") or "Untitled report").strip())
+    author = escape(str(row.get("author") or "Unknown").strip())
+    section = _article_section(row)
+    date = _date_label(row.get("date"))
+    url = _safe_url(row.get("url"))
+    image_url = row.get("image_url")
+    raw_summary = row.get("description") or row.get("summary") or row.get("author_bio") or ""
+    summary = escape(str(raw_summary).strip()[:210])
+    if not summary:
+        summary = "A source-linked report collected for this NewsTrace investigation."
+
+    media = _story_image(image_url, title) if image_url else ""
+    title_html = f'<a class="nt-story-link" href="{escape(url, quote=True)}" target="_blank" rel="noopener">{title}</a>' if url else title
+    return (
+        f'<article class="nt-story-card {variant}">'
+        f'<div class="nt-story-section">{section}</div>'
+        f'<h3 class="nt-story-headline">{title_html}</h3>'
+        f'<p class="nt-story-dek">{summary}</p>'
+        f'{media}'
+        f'<div class="nt-story-meta"><span>BY {author}</span><span>{date}</span>'
+        f'<span>{("READ SOURCE" if url else "SOURCE URL UNAVAILABLE")}</span></div>'
+        '</article>'
+    )
+
+
+def _render_masthead(edition_date, edition_name="INDIA / WORLD EDITION"):
+    date_text = edition_date.strftime("%A · %d %B %Y").upper()
+    html = f"""
+    <div class="nt-masthead-wrap">
+      <div class="nt-topline">
+        <span>VOL. 01 &nbsp; / &nbsp; ISSUE {edition_date.strftime('%j')}</span>
+        <span>{escape(edition_name)}</span>
+        <span>{date_text} &nbsp; · &nbsp; IST</span>
+      </div>
+      <div class="nt-masthead">
+        <div class="nt-wordmark">NewsTrace</div>
+        <div class="nt-masthead-deck">The Digital News Chronicle</div>
+        <div class="nt-masthead-bottom">
+          <span>WORLD</span><span>POLITICS</span><span>TECHNOLOGY</span>
+          <span>SCIENCE</span><span>BUSINESS</span><span>CULTURE</span>
+        </div>
+      </div>
+    </div>
+    """
+    motion_html = f"""
+    <!doctype html><html><head><meta charset="utf-8">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+      *{{box-sizing:border-box}} body{{margin:0;background:transparent;color:#29231D}}
+      .paper{{background:transparent;padding:0 0 2px;font-family:'IBM Plex Mono',monospace}}
+      .top{{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;border-top:1px solid rgba(58,46,34,.5);border-bottom:1px solid rgba(58,46,34,.2);padding:8px 0;color:#5B5145;font-size:9px;letter-spacing:.1em;text-transform:uppercase}}
+      .mast{{text-align:center;padding:17px 0 12px}}
+      .word{{font:700 clamp(62px,9vw,116px)/.76 'Cormorant Garamond',Georgia,serif;letter-spacing:-.075em;text-transform:uppercase;white-space:nowrap}}
+      .deck{{margin-top:13px;color:#852F2A;font:600 10px 'IBM Plex Mono',monospace;letter-spacing:.32em;text-transform:uppercase}}
+      .topics{{display:flex;justify-content:center;gap:15px;flex-wrap:wrap;margin-top:11px;color:#5B5145;font:9px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-transform:uppercase}}
+      .bottom-rule{{height:3px;border-top:1px solid #29231D;border-bottom:1px solid #29231D;margin-top:8px}}
+      .word,.deck,.topics,.top{{opacity:1;transform:none}}
+      @media(max-width:600px){{.word{{font-size:clamp(46px,12vw,70px)}}.deck{{font-size:8px;letter-spacing:.18em}}.topics{{font-size:7px;gap:9px}}.top{{font-size:7px}}}}
+      @media(prefers-reduced-motion:reduce){{*{{animation:none!important;transition:none!important}}}}
+    </style></head><body><div class="paper">
+      <div class="top"><span>VOL. 01 / ISSUE {edition_date.strftime('%j')}</span><span>{escape(edition_name)}</span><span>{date_text} · IST</span></div>
+      <header class="mast"><div class="word">NewsTrace</div><div class="deck">The Digital News Chronicle</div>
+        <nav class="topics"><span>World</span><span>Politics</span><span>Technology</span><span>Science</span><span>Business</span><span>Culture</span></nav>
+      </header><div class="bottom-rule"></div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script>
+      (function(){{
+        if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        if(!window.gsap) return;
+        const gsap = window.gsap;
+        gsap.fromTo('.top',{{opacity:0,y:-8}},{{opacity:1,y:0,duration:.45,ease:'power2.out'}});
+        gsap.fromTo('.word',{{opacity:0,y:22,letterSpacing:'-.02em'}},{{opacity:1,y:0,letterSpacing:'-.075em',duration:.8,delay:.08,ease:'power3.out'}});
+        gsap.fromTo('.deck, .topics',{{opacity:0,y:9}},{{opacity:1,y:0,duration:.42,delay:.36,stagger:.08,ease:'power2.out'}});
+        gsap.fromTo('.bottom-rule',{{scaleX:0,transformOrigin:'left center'}},{{scaleX:1,duration:.75,delay:.18,ease:'power2.inOut'}});
+      }})();
+    </script></body></html>
+    """
+    st.components.v1.html(motion_html, height=204, scrolling=False)
+
+
 def get_database_status():
     try:
         return check_connection()
@@ -830,86 +1307,119 @@ def get_database_status():
 
 
 inject_newsroom_styles()
+edition_date = _local_edition_date()
+_render_masthead(edition_date)
 
-# Sidebar: quiet product navigation and system context.
-with st.sidebar:
+st.markdown(
+    """
+    <div class="nt-nav">
+      <span>Front Page</span><span>World Desk</span><span>Politics</span>
+      <span>Technology</span><span>Business</span><span>Culture</span>
+      <span>Archive</span>
+    </div>
+    <div class="nt-edition-label">
+      <span>THE DAILY INTELLIGENCE CHRONICLE</span>
+      <span>REPORTS / SOURCES / PEOPLE / PATTERNS</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+db_connected, db_message = get_database_status()
+connection_text = "ARCHIVE CONNECTED" if db_connected else "SESSION ARCHIVE"
+
+if "df" in st.session_state and st.session_state["df"] is not None:
+    df = st.session_state["df"].copy()
+    if "author" not in df.columns:
+        df["author"] = "Unknown"
+    df["author"] = df["author"].fillna("Unknown")
+    article_total = len(df)
+    known_authors = df.loc[df["author"] != "Unknown", "author"].nunique()
+    current_outlet = str(st.session_state.get("outlet", "Current investigation"))
+    current_stats = st.session_state.get("stats", {})
+    lead = df.iloc[0]
+    lead_title = escape(str(lead.get("title") or "Untitled report"))
+    lead_author = escape(str(lead.get("author") or "Unknown"))
+    lead_section = _article_section(lead)
+    lead_date = _date_label(lead.get("date"))
+    lead_summary = escape(str(lead.get("description") or lead.get("summary") or "A report collected from the publication and retained with its source URL."))
+    lead_url = _safe_url(lead.get("url"))
+    lead_image = lead.get("image_url")
+    lead_link = (
+        f'<a href="{escape(lead_url, quote=True)}" target="_blank" rel="noopener">OPEN ORIGINAL REPORT ↗</a>'
+        if lead_url else '<span>SOURCE LINK NOT AVAILABLE</span>'
+    )
     st.markdown(
-        """
-        <div class="nt-brand">
-          <div class="nt-brand-mark">N</div>
+        f"""
+        <div class="nt-front-intro">
           <div>
-            <div class="nt-brand-name">NewsTrace</div>
-            <div class="nt-brand-sub">MEDIA INTELLIGENCE</div>
+            <div class="nt-front-kicker">CURRENT INVESTIGATION / {escape(current_outlet.upper())}</div>
+            <h1 class="nt-front-title">The stories. The sources. The people behind them.</h1>
+            <p class="nt-front-copy">A source-led reading of the coverage gathered from {escape(current_outlet)}. Every result below remains connected to its original publication.</p>
           </div>
+          <div class="nt-edition-note"><strong>{article_total:,}</strong> ARTICLES IN THIS EDITION<br><br>{known_authors:,} IDENTIFIED JOURNALISTS<br><br>{connection_text}</div>
         </div>
-        <div class="nt-side-label">Workspace</div>
-        <div class="nt-side-item active">◈ &nbsp; Investigations</div>
-        <div class="nt-side-item">▤ &nbsp; Coverage analysis</div>
-        <div class="nt-side-item">◎ &nbsp; Journalist intelligence</div>
-        <div class="nt-side-item">⌘ &nbsp; Data exports</div>
-        <br/>
-        <div class="nt-side-label">Pipeline</div>
-        <div class="nt-side-note">01 &nbsp; Discover article URLs<br/>02 &nbsp; Extract metadata<br/>03 &nbsp; Enrich journalist profiles<br/>04 &nbsp; Explore coverage patterns</div>
-        <br/>
-        <div class="nt-side-label">About this workspace</div>
-        <div class="nt-side-note">A research workspace for mapping newsroom coverage, journalist activity and article-level signals.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
+        <div class="nt-section-cap"><h2>Lead report</h2><span>THE FRONT PAGE / {lead_section}</span></div>
+        <article class="nt-lead">
+          <div class="nt-lead-copy">
+            <div class="nt-story-section">{lead_section}</div>
+            <h2 class="nt-lead-headline">{lead_title}</h2>
+            <p class="nt-lead-dek">{lead_summary}</p>
+            <div class="nt-byline">BY {lead_author} &nbsp; · &nbsp; {lead_date}</div>
+            <div style="margin-top:15px;color:var(--red);font:600 9px var(--mono);letter-spacing:.12em">{lead_link}</div>
+          </div>
+          {_story_image(lead_image, lead_title, lead=True)}
+        </article>
         """,
         unsafe_allow_html=True,
     )
 
-db_connected, db_message = get_database_status()
-db_label = "DATABASE CONNECTED" if db_connected else "LOCAL SESSION"
-db_class = "nt-status"
+else:
+    st.markdown(
+        """
+        <div class="nt-front-intro">
+          <div>
+            <div class="nt-front-kicker">INDEPENDENT REPORTING / INTELLIGENCE / CONTEXT</div>
+            <h1 class="nt-front-title">Follow the story. Find the source.</h1>
+            <p class="nt-front-copy">NewsTrace turns publication coverage into a searchable record of articles, journalists and the subjects they report on. Every investigation begins with a source.</p>
+          </div>
+          <div class="nt-edition-note"><strong>THE RECORD</strong>ARTICLE DISCOVERY<br><br>JOURNALIST INTELLIGENCE<br><br>COVERAGE ANALYSIS</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-st.markdown(
-    f"""
-    <div class="nt-hero">
-      <div class="nt-kicker">Journalist intelligence / Research workspace</div>
-      <div class="nt-hero-title">See the people behind<br/>the coverage.</div>
-      <div class="nt-hero-copy">
-        Discover articles, identify journalists and map the topics shaping a publication.
-        Start with a news outlet or a direct website URL.
-      </div>
-      <div class="nt-hero-meta">
-        <span class="nt-chip">ARTICLE DISCOVERY</span>
-        <span class="nt-chip">AUTHOR INTELLIGENCE</span>
-        <span class="nt-chip">COVERAGE MAPPING</span>
-        <span class="nt-status"><span class="nt-status-dot"></span>{db_label}</span>
-      </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# A clear single-step entry point, with optional controls kept out of the way.
+# Investigation entry point. Existing resolver, scraper and optional enrichment
+# controls remain intact; only the presentation has changed.
 st.markdown(
     """
-    <div class="nt-section-head">
-      <div class="nt-section-title">Start an investigation</div>
-      <div class="nt-section-copy">Enter a publication name or its official website to begin collecting coverage data.</div>
-    </div>
+    <div class="nt-section-cap"><h2>Open an investigation</h2><span>THE NEWSROOM DESK</span></div>
     """,
     unsafe_allow_html=True,
 )
-
-with st.container(border=True):
+with st.container():
     with st.form("newstrace_investigation", clear_on_submit=False):
         outlet = st.text_input(
-            "News outlet",
-            placeholder="e.g. Reuters, The Guardian or https://www.example.com",
-            help="Use a publication name or paste the full website URL.",
+            "Publication name or website",
+            placeholder="Enter a publication or paste its full URL",
+            help="A direct section URL is also accepted.",
         )
         with st.expander("Collection settings", expanded=False):
-            setting1, setting2, setting3 = st.columns(3)
-            with setting1:
+            settings_left, settings_mid, settings_right = st.columns(3)
+            with settings_left:
                 max_articles = st.slider("Maximum articles", 50, 1000, 300, 50)
-            with setting2:
+            with settings_mid:
                 enable_profiles = st.checkbox(
                     "Author profile enrichment",
                     value=False,
-                    help="Visit journalist profile pages for role, biography and social links.",
+                    help="Visit public journalist profile pages for additional details.",
                 )
-            with setting3:
+            with settings_right:
                 enable_google = st.checkbox(
                     "Search enrichment",
                     value=False,
@@ -922,241 +1432,172 @@ if submitted:
         st.error("Enter a publication name or website URL to continue.")
     else:
         os.makedirs("data", exist_ok=True)
-        df_result, stats_result = run_unified_pipeline(outlet, max_articles, enable_profiles, enable_google)
-
+        df_result, stats_result = run_unified_pipeline(
+            outlet.strip(), max_articles, enable_profiles, enable_google
+        )
         if df_result is not None and not df_result.empty:
             st.session_state["df"] = df_result
             st.session_state["outlet"] = outlet.strip()
             st.session_state["stats"] = stats_result or {}
-
-            extraction_report = (stats_result or {}).get("extraction_diagnostics", {})
-            if extraction_report.get("failed"):
-                reasons = extraction_report.get("failure_reasons", {})
-                reason_text = ", ".join(
-                    f"{reason}: {count}"
-                    for reason, count in sorted(reasons.items(), key=lambda item: item[1], reverse=True)[:4]
-                )
-                st.warning(
-                    f"{extraction_report['failed']} of {extraction_report.get('processed', 0)} "
-                    f"article pages could not be parsed. "
-                    + (f"Most common causes: {reason_text}." if reason_text else "")
-                )
-                with st.expander("View extraction diagnostics"):
-                    for sample in extraction_report.get("failure_samples", []):
-                        st.markdown(
-                            f"- **{sample.get('host', 'Unknown host')}** — "
-                            f"{sample.get('reason', 'unknown')}: "
-                            f"{sample.get('detail') or 'No additional details'} "
-                            f"(browser HTTP: {sample.get('browser_http_status')}, "
-                            f"HTTP fallback: {sample.get('requests_http_status')})"
-                        )
-
-            # Persistence is optional; analysis remains available when no DB is configured.
             if db_connected:
-                with st.spinner("Saving this investigation…"):
+                with st.spinner("Recording this edition in the archive…"):
                     articles_result = save_articles(df_result, outlet)
                     profiles_result = save_journalist_profiles(df_result, outlet)
                 if articles_result.get("success") or profiles_result.get("success"):
                     st.success(
-                        f"Saved {articles_result.get('count', 0)} articles and "
+                        f"Archived {articles_result.get('count', 0)} articles and "
                         f"{profiles_result.get('count', 0)} journalist profiles."
                     )
                 else:
-                    st.warning("The analysis completed, but database storage was unavailable.")
+                    st.warning("The analysis completed, but the database did not confirm storage.")
             else:
-                st.caption("Investigation is available in this session. Configure Supabase to enable persistent storage.")
+                st.caption("This edition is available in the current session. Configure Supabase for persistent storage.")
+            st.rerun()
         else:
-            if not st.session_state.get("_pipeline_error_displayed", False):
-                st.warning(
-                    "No articles were returned. Try a direct section URL or a different publication."
-                )
+            st.warning("No article records were returned. The status above explains whether discovery or page extraction failed.")
 
-# Render results in focused workspaces rather than one very long page.
 if "df" in st.session_state and st.session_state["df"] is not None:
     df = st.session_state["df"].copy()
     stats = st.session_state.get("stats", {})
-    outlet_label = st.session_state.get("outlet", "Current investigation")
-    safe_outlet_label = escape(str(outlet_label))
-    safe_file_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", str(outlet_label)).strip("_") or "newstrace"
+    outlet_label = str(st.session_state.get("outlet", "Current investigation"))
+    safe_outlet_label = escape(outlet_label)
     if "author" not in df.columns:
         df["author"] = "Unknown"
     df["author"] = df["author"].fillna("Unknown")
-    author_count = df.loc[df["author"] != "Unknown", "author"].nunique()
+
+    authors = int(df.loc[df["author"] != "Unknown", "author"].nunique())
     article_count = len(df)
     unknown_count = int((df["author"] == "Unknown").sum())
-    unknown_pct = (unknown_count / article_count * 100) if article_count else 0
+    unknown_pct = (unknown_count / article_count * 100) if article_count else 0.0
     social_count = sum(
-        int(df[col].notna().sum()) for col in ["twitter", "linkedin", "instagram", "facebook"] if col in df.columns
+        int(df[col].notna().sum())
+        for col in ("twitter", "linkedin", "instagram", "facebook")
+        if col in df.columns
     )
     email_count = int(df["author_email"].notna().sum()) if "author_email" in df.columns else 0
 
     st.markdown(
-        f"""
-        <div class="nt-section-head">
-          <div class="nt-overline">Current investigation</div>
-          <div class="nt-section-title">{safe_outlet_label}</div>
-          <div class="nt-section-copy">Collected records are grouped into overview, coverage, journalist and dataset views.</div>
-        </div>
-        """,
+        '<div class="nt-section-cap"><h2>Inside this edition</h2><span>THE RECORD AT A GLANCE</span></div>',
         unsafe_allow_html=True,
     )
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Articles collected", f"{article_count:,}")
+    metric_cols[1].metric("Identified journalists", f"{authors:,}")
+    metric_cols[2].metric("Public profile links", f"{social_count:,}")
+    metric_cols[3].metric("Unknown bylines", f"{unknown_pct:.1f}%")
 
-    overview_tab, coverage_tab, journalists_tab, dataset_tab = st.tabs(
-        ["Overview", "Coverage", "Journalists", "Dataset"]
+    st.markdown(
+        f'<div class="nt-section-cap"><h2>From the pages</h2><span>{article_count:,} RECORDS / {safe_outlet_label.upper()}</span></div>',
+        unsafe_allow_html=True,
     )
+    story_rows = [row for _, row in df.head(7).iterrows()]
+    if story_rows:
+        lead_rows = story_rows[1:]
+        card_html = '<div class="nt-story-grid">' + "".join(
+            _story_card(row, "span-4") for row in lead_rows
+        ) + "</div>"
+        st.markdown(card_html, unsafe_allow_html=True)
 
-    with overview_tab:
-        st.markdown('<div class="nt-overline">At a glance</div>', unsafe_allow_html=True)
-        metric_cols = st.columns(4)
-        metric_cols[0].metric("Identified journalists", f"{author_count:,}")
-        metric_cols[1].metric("Articles collected", f"{article_count:,}")
-        metric_cols[2].metric("Public profile links", f"{social_count:,}")
-        metric_cols[3].metric("Unidentified authors", f"{unknown_pct:.1f}%")
-
-        st.markdown(
-            """
-            <div class="nt-section-head">
-              <div class="nt-section-title">Collection summary</div>
-              <div class="nt-section-copy">A quick readout of what the pipeline found in this run.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        summary_left, summary_right = st.columns([1.2, 1])
-        with summary_left:
-            with st.container(border=True):
-                st.markdown("**Pipeline stages**")
-                stage_names = [
-                    ("Article URLs discovered", stats.get("urls_found", 0)),
-                    ("Articles successfully parsed", stats.get("articles_scraped", article_count)),
-                    ("Journalist profiles enriched", stats.get("profiles_found", 0)),
-                    ("Search-enriched profiles", stats.get("google_enriched", 0)),
-                ]
-                for stage_name, stage_value in stage_names:
-                    st.markdown(
-                        f'<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid rgba(157,180,205,.10);">'
-                        f'<span style="color:#9DB0C2;font-size:12px;">{stage_name}</span>'
-                        f'<strong style="color:#EAF1F8;font-size:13px;font-variant-numeric:tabular-nums;">{stage_value:,}</strong></div>',
-                        unsafe_allow_html=True,
-                    )
-        with summary_right:
-            with st.container(border=True):
-                st.markdown("**Data quality signal**")
-                known_pct = 100 - unknown_pct
-                st.markdown(
-                    f'<div style="font-size:30px;font-weight:760;color:#A8EBD2;margin:12px 0 4px;">{known_pct:.1f}%</div>'
-                    '<div style="font-size:11px;color:#93A6BA;">of collected articles have an identified author</div>',
-                    unsafe_allow_html=True,
-                )
-                st.progress(max(0.0, min(1.0, known_pct / 100)))
-                st.caption(f"{unknown_count:,} article(s) currently have an unknown author.")
-
-        st.markdown(
-            """
-            <div class="nt-section-head">
-              <div class="nt-section-title">What to explore next</div>
-              <div class="nt-section-copy">Move from the collection summary into the evidence behind it.</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        next_cols = st.columns(3)
-        next_items = [
-            ("01", "Coverage", "Compare the most active authors and the sections they cover."),
-            ("02", "Journalists", "Review identified reporters and any extracted public profile details."),
-            ("03", "Dataset", "Search, filter and export the article-level records."),
-        ]
-        for col, item in zip(next_cols, next_items):
-            with col:
-                st.markdown(
-                    f'<div class="nt-card"><div class="nt-overline">{item[0]}</div>'
-                    f'<div style="color:#EAF1F8;font-size:14px;font-weight:700;margin:8px 0 5px;">{item[1]}</div>'
-                    f'<div style="color:#93A6BA;font-size:11px;line-height:1.6;">{item[2]}</div></div>',
-                    unsafe_allow_html=True,
-                )
+    coverage_tab, journalists_tab, archive_tab = st.tabs(
+        ["Coverage & analysis", "Journalist directory", "Search the archive"]
+    )
 
     with coverage_tab:
         st.markdown(
-            """
-            <div class="nt-section-head">
-              <div class="nt-section-title">Coverage intelligence</div>
-              <div class="nt-section-copy">Understand who is publishing and how journalist activity maps to coverage sections.</div>
-            </div>
-            """,
+            '<div class="nt-section-cap"><h2>Who is writing the story?</h2><span>COVERAGE INTELLIGENCE</span></div>',
             unsafe_allow_html=True,
         )
-        chart_col, network_col = st.columns([1, 1.15])
-        with chart_col:
+        left, right = st.columns([1, 1.2])
+        with left:
             st.markdown("**Most active journalists**")
             chart = create_chart(df)
             if chart:
                 chart.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#DCE7F2", family="Inter, sans-serif"),
+                    font=dict(color="#29231D", family="Cormorant Garamond, Georgia, serif"),
                     title=None, height=430,
+                    xaxis=dict(gridcolor="rgba(58,46,34,.13)", color="#665B4E"),
+                    yaxis=dict(color="#29231D"),
                 )
                 st.plotly_chart(chart, use_container_width=True, config={"displayModeBar": False})
             else:
-                st.info("Author activity will appear after journalists have been identified.")
-        with network_col:
-            st.markdown("**Author–section relationships**")
+                st.info("Author activity will appear when the source pages expose bylines.")
+        with right:
+            st.markdown("**Relationships between journalists and sections**")
             network = create_author_section_network(df)
             if network:
                 network.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#DCE7F2", family="Inter, sans-serif"),
+                    font=dict(color="#29231D", family="Cormorant Garamond, Georgia, serif"),
                 )
                 st.plotly_chart(network, use_container_width=True, config={"displayModeBar": False})
             else:
-                st.info("The network needs multiple identified authors and coverage sections.")
+                st.info("The relationship map needs multiple identified journalists and sections.")
 
         if "section" in df.columns:
-            st.markdown("**Section distribution**")
+            st.markdown(
+                '<div class="nt-section-cap"><h2>Sections in this edition</h2><span>EDITORIAL DISTRIBUTION</span></div>',
+                unsafe_allow_html=True,
+            )
             section_counts = (
                 df["section"].fillna("Unclassified").replace("", "Unclassified")
                 .value_counts().head(12).rename_axis("Section").reset_index(name="Articles")
             )
             st.dataframe(section_counts, use_container_width=True, hide_index=True)
 
+        if stats:
+            st.markdown(
+                '<div class="nt-section-cap"><h2>How this edition was assembled</h2><span>PIPELINE RECORD</span></div>',
+                unsafe_allow_html=True,
+            )
+            progress_cols = st.columns(4)
+            progress_cols[0].metric("URLs discovered", f"{stats.get('urls_found', 0):,}")
+            progress_cols[1].metric("Articles parsed", f"{stats.get('articles_scraped', article_count):,}")
+            progress_cols[2].metric("Profiles enriched", f"{stats.get('profiles_found', 0):,}")
+            progress_cols[3].metric("Search matches", f"{stats.get('google_enriched', 0):,}")
+
     with journalists_tab:
         st.markdown(
-            """
-            <div class="nt-section-head">
-              <div class="nt-section-title">Journalist intelligence</div>
-              <div class="nt-section-copy">Consolidated author records with the profile attributes available from the source pages.</div>
-            </div>
-            """,
+            '<div class="nt-section-cap"><h2>Journalist directory</h2><span>PEOPLE BEHIND THE BYLINES</span></div>',
             unsafe_allow_html=True,
         )
-        if author_count:
+        if authors:
             display_journalist_profiles(df)
+            author_rows = (
+                df[df["author"] != "Unknown"].groupby("author")
+                .agg(Articles=("title", "count"))
+                .sort_values("Articles", ascending=False)
+                .reset_index()
+            )
+            st.dataframe(author_rows, use_container_width=True, hide_index=True)
         else:
             st.markdown(
-                '<div class="nt-empty"><div class="nt-empty-icon">◎</div>'
-                '<div class="nt-empty-title">No journalist profiles identified yet</div>'
-                '<div class="nt-empty-copy">The article records were collected, but the source pages did not expose usable author names. Try another outlet or enable author profile enrichment.</div></div>',
+                '<div class="nt-empty"><h3>No identified bylines yet</h3><p>Articles were collected, but this publisher did not expose usable author names. Try enabling profile enrichment or another section URL.</p></div>',
                 unsafe_allow_html=True,
             )
 
-    with dataset_tab:
+    with archive_tab:
         st.markdown(
-            """
-            <div class="nt-section-head">
-              <div class="nt-section-title">Article dataset</div>
-              <div class="nt-section-copy">Search the collected records, narrow by section, then export the current investigation.</div>
-            </div>
-            """,
+            '<div class="nt-section-cap"><h2>Search the archive</h2><span>FIND A REPORT / BYLINE / SECTION</span></div>',
             unsafe_allow_html=True,
         )
-        filter_col, section_col = st.columns([1.6, 1])
-        with filter_col:
-            record_query = st.text_input("Search records", placeholder="Search author, headline, URL or date…", key="dataset_search")
+        query_col, section_col = st.columns([1.5, 1])
+        with query_col:
+            record_query = st.text_input(
+                "Search the archive",
+                placeholder="Search headlines, authors, links and dates…",
+                key="dataset_search",
+            )
         with section_col:
             if "section" in df.columns:
                 section_options = sorted(
                     set(df["section"].fillna("Unclassified").replace("", "Unclassified").astype(str).tolist())
                 )
-                chosen_section = st.selectbox("Coverage section", ["All sections"] + section_options, key="dataset_section")
+                chosen_section = st.selectbox(
+                    "Newspaper section",
+                    ["All sections"] + section_options,
+                    key="dataset_section",
+                )
             else:
                 chosen_section = "All sections"
 
@@ -1166,11 +1607,13 @@ if "df" in st.session_state and st.session_state["df"] is not None:
             filtered_df = filtered_df.loc[section_values == chosen_section]
         if record_query.strip():
             mask = filtered_df.astype(str).apply(
-                lambda column: column.str.contains(record_query.strip(), case=False, na=False, regex=False)
+                lambda column: column.str.contains(
+                    record_query.strip(), case=False, na=False, regex=False
+                )
             ).any(axis=1)
             filtered_df = filtered_df.loc[mask]
 
-        st.caption(f"Showing {len(filtered_df):,} of {len(df):,} article records")
+        st.caption(f"{len(filtered_df):,} RECORDS SHOWN / {len(df):,} TOTAL")
         preferred_cols = [
             "author", "title", "section", "date", "url",
             "author_role", "author_email", "twitter", "linkedin",
@@ -1178,61 +1621,68 @@ if "df" in st.session_state and st.session_state["df"] is not None:
         display_cols = [col for col in preferred_cols if col in filtered_df.columns]
         column_config = {}
         if "url" in display_cols:
-            column_config["url"] = st.column_config.LinkColumn("Article", display_text="Open source")
+            column_config["url"] = st.column_config.LinkColumn("Original report", display_text="Open source")
         if "author_email" in display_cols:
-            column_config["author_email"] = st.column_config.TextColumn("Email")
+            column_config["author_email"] = st.column_config.TextColumn("Public email")
         if display_cols:
             st.dataframe(
                 filtered_df[display_cols],
                 use_container_width=True,
-                height=520,
+                height=510,
                 hide_index=True,
                 column_config=column_config,
             )
         else:
-            st.dataframe(filtered_df, use_container_width=True, height=520, hide_index=True)
+            st.dataframe(filtered_df, use_container_width=True, height=510, hide_index=True)
 
-        export_left, export_csv, export_json = st.columns([2, 1, 1])
-        with export_left:
-            st.caption("Exports include the filtered records currently shown above.")
+        export_note, export_csv, export_json = st.columns([2, 1, 1])
+        with export_note:
+            st.caption("Downloads contain the filtered records currently shown.")
         with export_csv:
             st.download_button(
-                "↓  Export CSV",
+                "Export CSV",
                 filtered_df.to_csv(index=False).encode("utf-8"),
-                f"{safe_file_stem}_newstrace.csv",
+                f"{re.sub(r'[^A-Za-z0-9_-]+', '_', outlet_label).strip('_') or 'newstrace'}_archive.csv",
                 "text/csv",
                 use_container_width=True,
             )
         with export_json:
             st.download_button(
-                "↓  Export JSON",
+                "Export JSON",
                 filtered_df.to_json(orient="records", indent=2).encode("utf-8"),
-                f"{safe_file_stem}_newstrace.json",
+                f"{re.sub(r'[^A-Za-z0-9_-]+', '_', outlet_label).strip('_') or 'newstrace'}_archive.json",
                 "application/json",
                 use_container_width=True,
             )
+
+    if authors:
+        st.markdown(
+            '<div class="nt-section-cap"><h2>Byline notes</h2><span>PUBLIC PROFILE SIGNALS</span></div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            f"{authors:,} journalists identified · {email_count:,} public email fields · "
+            f"{social_count:,} public social-profile fields."
+        )
 
 else:
     st.markdown(
         """
         <div class="nt-empty">
-          <div class="nt-empty-icon">⌕</div>
-          <div class="nt-empty-title">Your next investigation starts here</div>
-          <div class="nt-empty-copy">
-            Enter a publication above to collect its articles and surface journalist activity.
-            Your results will appear in a focused workspace with coverage charts, journalist profiles and searchable exports.
-          </div>
+          <h3>Every story leaves a trail.</h3>
+          <p>Start with a publication or section URL to gather article records, identify bylines and map coverage. Results remain linked to their original sources.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 st.markdown(
-    """
-    <div class="nt-footer">
-      <span>NEWSTRACE · JOURNALIST INTELLIGENCE</span>
-      <span>Research with context. Data with provenance.</span>
-    </div>
+    f"""
+    <footer class="nt-footer">
+      <span>NEWSTRACE / THE DIGITAL NEWS CHRONICLE</span>
+      <span>{edition_date.strftime('%d %B %Y').upper()} / INDIA EDITION</span>
+      <span>FACTS WITH SOURCES. STORIES WITH CONTEXT.</span>
+    </footer>
     """,
     unsafe_allow_html=True,
 )
