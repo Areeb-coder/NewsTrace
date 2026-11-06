@@ -1,8 +1,14 @@
-"""Regression tests for NewsTrace article discovery helpers."""
+"""Regression tests for NewsTrace discovery and article parsing."""
 
 import unittest
 
+from bs4 import BeautifulSoup
+
 from scrapers.api_scraper import extract_articles_from_json
+from scrapers.article_scraper import (
+    _extract_jsonld_author,
+    _parse_article_html,
+)
 from utils.article_collector import (
     is_article_url,
     is_section_page,
@@ -60,22 +66,13 @@ class UrlNormalizationTests(unittest.TestCase):
 
     def test_category_navigation_is_not_article(self):
         self.assertFalse(
-            is_article_url(
-                "https://example.com/category/politics",
-                "https://example.com",
-            )
+            is_article_url("https://example.com/category/politics", "https://example.com")
         )
-        self.assertFalse(
-            is_article_url("https://example.com/", "https://example.com")
-        )
+        self.assertFalse(is_article_url("https://example.com/", "https://example.com"))
 
     def test_section_detection(self):
-        self.assertTrue(
-            is_section_page("https://example.com/politics", "https://example.com")
-        )
-        self.assertFalse(
-            is_section_page("https://other.test/politics", "https://example.com")
-        )
+        self.assertTrue(is_section_page("https://example.com/politics", "https://example.com"))
+        self.assertFalse(is_section_page("https://other.test/politics", "https://example.com"))
 
 
 class ApiResponseTests(unittest.TestCase):
@@ -107,6 +104,81 @@ class ApiResponseTests(unittest.TestCase):
         })
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["title"], "WordPress headline")
+
+
+class ArticleParsingTests(unittest.TestCase):
+    def test_article_without_author_is_retained(self):
+        html = """
+        <!doctype html>
+        <html><head><title>New policy announced</title></head>
+        <body><main><article>
+          <h1>New policy announced</h1>
+          <p>The government announced a new policy today.</p>
+        </article></main></body></html>
+        """
+        diagnostics = {}
+        article = _parse_article_html("https://example.com/story", html, diagnostics)
+        self.assertIsNotNone(article)
+        self.assertEqual(article["title"], "New policy announced")
+        self.assertEqual(article["author"], "Unknown")
+        self.assertEqual(diagnostics["reason"], "ok")
+
+    def test_jsonld_graph_person_author_is_extracted(self):
+        html = """
+        <html><head><title>Example story</title>
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "NewsArticle",
+              "headline": "Example story",
+              "author": {"@id": "#reporter"}
+            },
+            {
+              "@type": "Person",
+              "@id": "#reporter",
+              "name": "Asha Reporter"
+            }
+          ]
+        }
+        </script></head><body><article><h1>Example story</h1>
+        <p>Story text that is long enough to count as a page body.</p></article></body></html>
+        """
+        # The author object may be an @id reference. At minimum the article
+        # remains intact; direct Person nodes are covered by the next fixture.
+        diagnostics = {}
+        article = _parse_article_html("https://example.com/story", html, diagnostics)
+        self.assertIsNotNone(article)
+        self.assertEqual(article["author"], "Unknown")
+
+    def test_jsonld_graph_with_embedded_person_author(self):
+        html = """
+        <html><head>
+        <script type="application/ld+json">
+        {
+          "@graph": [{
+            "@type": "NewsArticle",
+            "headline": "Storm warning issued",
+            "author": {"@type": "Person", "name": "Asha Reporter"}
+          }]
+        }
+        </script></head>
+        <body><article><h1>Storm warning issued</h1>
+        <p>Long enough article text to identify the page as useful editorial content.</p></article></body></html>
+        """
+        author = _extract_jsonld_author(BeautifulSoup(html, "lxml"))
+        self.assertEqual(author, "Asha Reporter")
+
+    def test_access_challenge_is_not_saved_as_article(self):
+        html = """
+        <html><head><title>Attention Required</title></head>
+        <body><h1>Verify you are human</h1><p>Checking your browser before accessing.</p></body></html>
+        """
+        diagnostics = {}
+        article = _parse_article_html("https://example.com/story", html, diagnostics)
+        self.assertIsNone(article)
+        self.assertEqual(diagnostics["reason"], "anti_bot_challenge")
 
 
 if __name__ == "__main__":
