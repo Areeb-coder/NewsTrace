@@ -26,7 +26,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
-.streamlit/secrets.toml
 
 # Local container / build output
 .pytest_cache/
