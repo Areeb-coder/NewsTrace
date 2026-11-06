@@ -125,8 +125,8 @@ def safe_get(
     response = None
 
     try:
+        validate_public_http_url(current_url)
         while True:
-            validate_public_http_url(current_url)
             response = client.get(
                 current_url,
                 allow_redirects=False,
