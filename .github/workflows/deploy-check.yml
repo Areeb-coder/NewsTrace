@@ -186,8 +186,94 @@ jobs:
                   ).wait_for()
                   await resume_page.close()
 
+                  # Exercise the frontend's actual Discover -> job status ->
+                  # results flow with deterministic API responses.
+                  await page.get_by_role("button", name="Front page").click()
+
+                  completed_job = {
+                      "job_id": "browser-e2e-job",
+                      "outlet": "Example News",
+                      "source_url": "https://example.com",
+                      "status": "complete",
+                      "stage": "Complete",
+                      "detail": "1 article records are ready.",
+                      "current": 1,
+                      "total": 1,
+                      "events": [{
+                          "stage": "Complete",
+                          "detail": "1 article records are ready.",
+                          "current": 1,
+                          "total": 1,
+                          "at": "2026-11-06T00:00:02+00:00",
+                      }],
+                      "parameters": {"outlet": "Example News", "max_articles": 50},
+                      "stats": {"urls_found": 1, "articles_scraped": 1},
+                      "warnings": [],
+                      "error": None,
+                      "created_at": "2026-11-06T00:00:00+00:00",
+                      "updated_at": "2026-11-06T00:00:02+00:00",
+                      "finished_at": "2026-11-06T00:00:02+00:00",
+                  }
+                  article = {
+                      "title": "A source-linked report from the browser test",
+                      "author": "A Reporter",
+                      "section": "World",
+                      "date": "2026-11-06",
+                      "url": "https://example.com/world/browser-test",
+                      "image_url": None,
+                      "outlet": "Example News",
+                  }
+
+                  async def accept_discovery(route):
+                      await route.fulfill(
+                          status=202,
+                          content_type="application/json",
+                          body=json.dumps({
+                              "job_id": "browser-e2e-job",
+                              "status": "queued",
+                              "status_url": "/api/discovery/browser-e2e-job",
+                              "results_url": "/api/discovery/browser-e2e-job/results",
+                          }),
+                      )
+
+                  async def completed_status(route):
+                      await route.fulfill(
+                          status=200,
+                          content_type="application/json",
+                          body=json.dumps(completed_job),
+                      )
+
+                  async def completed_results(route):
+                      await route.fulfill(
+                          status=200,
+                          content_type="application/json",
+                          body=json.dumps({
+                              "job_id": "browser-e2e-job",
+                              "status": "complete",
+                              "outlet": "Example News",
+                              "source_url": "https://example.com",
+                              "articles": [article],
+                              "stats": completed_job["stats"],
+                              "warnings": [],
+                              "total": 1,
+                              "offset": 0,
+                              "limit": 500,
+                          }),
+                      )
+
+                  await page.route("**/api/discovery/start", accept_discovery)
+                  await page.route("**/api/discovery/browser-e2e-job", completed_status)
+                  await page.route("**/api/discovery/browser-e2e-job/results", completed_results)
+                  await page.get_by_label("Publication name or section URL").fill("Example News")
+                  await page.get_by_role("button", name="Begin discovery →").click()
+                  await page.get_by_text("1 article records are ready in the edition.").wait_for()
+                  await page.get_by_role(
+                      "heading",
+                      name="A source-linked report from the browser test",
+                  ).wait_for()
+
                   await browser.close()
-                  print("Browser navigation, archive shortcut, discovery panel, refresh recovery and 6 viewport checks passed.")
+                  print("Browser navigation, archive shortcut, discovery submission, job result rendering, refresh recovery and 6 viewport checks passed.")
 
           asyncio.run(main())
           PY
