@@ -161,12 +161,22 @@ def extract_articles_from_json(data):
         if not title or not url:
             continue
 
+        image_value = (
+            item.get("image_url")
+            or item.get("image")
+            or item.get("thumbnail")
+            or item.get("featured_image")
+        )
+        if isinstance(image_value, dict):
+            image_value = image_value.get("url") or image_value.get("src")
+
         articles.append({
             "title": title,
             "author": item.get("author") or item.get("byline") or "Unknown",
             "url": url,
             "date": item.get("date") or item.get("published") or item.get("created_at") or "",
             "section": item.get("section") or item.get("category") or item.get("topic") or "",
+            "image_url": image_value if isinstance(image_value, str) else None,
         })
 
     return articles
