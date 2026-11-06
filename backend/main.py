@@ -115,10 +115,17 @@ def _discover_from_input(raw_input: str, resolved_url: str) -> str:
 
 
 async def _run_job(job_id: str, request: DiscoveryRequest, semaphore: asyncio.Semaphore) -> None:
+    """Run one investigation without blocking FastAPI's event loop on storage I/O."""
     async with semaphore:
+        progress_queue: asyncio.Queue[tuple[str, int, int, str] | None] | None = None
+        progress_writer: asyncio.Task | None = None
         try:
-            store.update_progress(
-                job_id, "Source resolution", 0, 1,
+            await asyncio.to_thread(
+                store.update_progress,
+                job_id,
+                "Source resolution",
+                0,
+                1,
                 "Resolving the publication and preparing the investigation.",
             )
             raw_input = request.outlet.strip()
@@ -131,29 +138,80 @@ async def _run_job(job_id: str, request: DiscoveryRequest, semaphore: asyncio.Se
             _validate_public_http_url(resolved_url)
             discovery_url = _validate_public_http_url(_discover_from_input(raw_input, resolved_url))
             outlet_label = outlet_label or urlparse(resolved_url).netloc
-            store.set_source(job_id, resolved_url, outlet_label)
-            store.update_progress(
-                job_id, "Source resolved", 1, 1,
+            await asyncio.to_thread(store.set_source, job_id, resolved_url, outlet_label)
+            await asyncio.to_thread(
+                store.update_progress,
+                job_id,
+                "Source resolved",
+                1,
+                1,
                 f"Publication identified: {outlet_label}. Article discovery is starting.",
             )
 
+            loop = asyncio.get_running_loop()
+            loop_thread = threading.get_ident()
+            progress_queue = asyncio.Queue()
             progress_throttle = ProgressThrottle(min_interval_seconds=0.3)
 
-            def on_progress(stage: str, current: int, total: int, detail: str) -> None:
-                # Keep SQLite writes bounded during parallel extraction. Stage
-                # changes and final counts are always recorded immediately.
-                if progress_throttle.should_report(stage, current, total):
-                    store.update_progress(job_id, stage, current, total, detail)
+            async def persist_progress() -> None:
+                while True:
+                    event = await progress_queue.get()
+                    try:
+                        if event is None:
+                            return
+                        await asyncio.to_thread(
+                            store.update_progress,
+                            job_id,
+                            event[0],
+                            event[1],
+                            event[2],
+                            event[3],
+                        )
+                    except Exception:
+                        # A transient status write must not cancel article
+                        # extraction. Final job persistence is still required.
+                        logger.exception("Could not persist progress for NewsTrace job %s", job_id)
+                    finally:
+                        progress_queue.task_done()
 
-            frame, stats, warnings = await run_investigation(
-                resolved_url,
-                outlet_label,
-                request.max_articles,
-                request.enable_profiles,
-                request.enable_google,
-                discovery_url=discovery_url,
-                progress_callback=on_progress,
+            progress_writer = asyncio.create_task(
+                persist_progress(),
+                name=f"newstrace-progress-{job_id}",
             )
+
+            def enqueue_progress(stage: str, current: int, total: int, detail: str) -> None:
+                if progress_queue is None:
+                    return
+                progress_queue.put_nowait((stage, current, total, detail))
+
+            def on_progress(stage: str, current: int, total: int, detail: str) -> None:
+                if not progress_throttle.should_report(stage, current, total):
+                    return
+                if threading.get_ident() == loop_thread:
+                    enqueue_progress(stage, current, total, detail)
+                else:
+                    loop.call_soon_threadsafe(enqueue_progress, stage, current, total, detail)
+
+            try:
+                frame, stats, warnings = await run_investigation(
+                    resolved_url,
+                    outlet_label,
+                    request.max_articles,
+                    request.enable_profiles,
+                    request.enable_google,
+                    discovery_url=discovery_url,
+                    progress_callback=on_progress,
+                )
+            finally:
+                # Drain callbacks scheduled from worker threads before stopping
+                # the serial writer; progress writes must remain ordered.
+                await asyncio.sleep(0)
+                await progress_queue.join()
+                await progress_queue.put(None)
+                await progress_writer
+                progress_writer = None
+                progress_queue = None
+
             articles = _serialize_frame(frame)
             if not articles:
                 raise RuntimeError(
@@ -161,9 +219,9 @@ async def _run_job(job_id: str, request: DiscoveryRequest, semaphore: asyncio.Se
                 )
 
             warnings = list(warnings or [])
-            # Supabase remains optional. Its failures should not discard the local
-            # investigation results or leave a job spinning.
-            if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY"):
+            if os.getenv("SUPABASE_URL") and (
+                os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+            ):
                 try:
                     from utils.supabase_backend import save_articles, save_journalist_profiles
 
@@ -172,39 +230,64 @@ async def _run_job(job_id: str, request: DiscoveryRequest, semaphore: asyncio.Se
                         asyncio.to_thread(save_journalist_profiles, frame, outlet_label),
                     )
                     if not article_save.get("success"):
-                        warnings.append("The investigation completed, but article records were not confirmed in Supabase.")
+                        warnings.append(
+                            "The investigation completed, but article records were not confirmed in Supabase."
+                        )
                     if not profile_save.get("success"):
-                        warnings.append("The investigation completed, but journalist profiles were not confirmed in Supabase.")
+                        warnings.append(
+                            "The investigation completed, but journalist profiles were not confirmed in Supabase."
+                        )
                     stats["supabase_articles_saved"] = article_save.get("count", 0)
                     stats["supabase_profiles_saved"] = profile_save.get("count", 0)
-                except Exception as exc:
-                    logger.exception("Supabase persistence failed for job %s", job_id)
-                    warnings.append("The investigation completed, but optional Supabase persistence failed.")
+                except Exception:
+                    logger.exception("Supabase article/profile persistence failed for job %s", job_id)
+                    warnings.append("The investigation completed, but optional article/profile persistence failed.")
 
             failed = int(stats.get("article_failures", 0) or 0)
-            store.complete_job(
+            await asyncio.to_thread(
+                store.complete_job,
                 job_id,
                 articles,
                 stats,
                 warnings,
-                partial=failed > 0,
+                failed > 0,
             )
         except asyncio.CancelledError:
-            store.fail_job(
-                job_id,
-                "The API process is shutting down. This investigation was interrupted; start it again after the service is available.",
-                status="interrupted",
-            )
+            try:
+                if progress_queue is not None and progress_writer is not None:
+                    await progress_queue.join()
+                    await progress_queue.put(None)
+                    await progress_writer
+                await asyncio.to_thread(
+                    store.fail_job,
+                    job_id,
+                    "The API process is shutting down. This investigation was interrupted; start it again after the service is available.",
+                    "interrupted",
+                )
+            except Exception:
+                logger.exception("Could not persist interruption for NewsTrace job %s", job_id)
             raise
         except Exception as exc:
             logger.exception("NewsTrace job %s failed", job_id)
             public_error = str(exc).strip() or "An unexpected error interrupted the investigation."
-            store.fail_job(job_id, public_error[:900])
+            try:
+                if progress_queue is not None and progress_writer is not None:
+                    await asyncio.sleep(0)
+                    await progress_queue.join()
+                    await progress_queue.put(None)
+                    await progress_writer
+                await asyncio.to_thread(store.fail_job, job_id, public_error[:900])
+            except Exception:
+                logger.exception("Could not persist failure for NewsTrace job %s", job_id)
+
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    recovered = store.recover_interrupted_jobs()
+    storage_ok, storage_message = await asyncio.to_thread(store.check_connection)
+    if not storage_ok:
+        raise RuntimeError(storage_message)
+    recovered = await asyncio.to_thread(store.recover_interrupted_jobs)
     if recovered:
         logger.warning("Marked %s jobs as interrupted after a process restart.", recovered)
     app.state.tasks = {}
@@ -243,14 +326,24 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
-    return {
-        "ok": True,
+    storage_ok, storage_message = await asyncio.to_thread(store.check_connection)
+    payload = {
+        "ok": storage_ok,
         "service": "newstrace-api",
         "time": datetime.now(timezone.utc).isoformat(),
+        "storage": {
+            "backend": getattr(store, "backend_name", "unknown"),
+            "durable": bool(getattr(store, "is_durable", False)),
+            "ok": storage_ok,
+            "message": storage_message,
+        },
         "active_jobs": sum(
             1 for task in getattr(app.state, "tasks", {}).values() if not task.done()
         ),
     }
+    if not storage_ok:
+        raise HTTPException(status_code=503, detail="NewsTrace storage is unavailable.")
+    return payload
 
 
 @app.post("/api/discovery/start", status_code=status.HTTP_202_ACCEPTED)
@@ -262,10 +355,13 @@ async def start_discovery(payload: DiscoveryRequest, request: Request) -> dict[s
     candidate = raw_outlet if raw_outlet.startswith(("http://", "https://")) else f"https://{raw_outlet}"
     candidate_parts = urlparse(candidate)
     if candidate_parts.netloc and "." in (candidate_parts.hostname or ""):
-        _validate_public_http_url(candidate)
+        try:
+            _validate_public_http_url(candidate)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     parameters = payload.model_dump()
-    job = store.create_job(raw_outlet, parameters)
+    job = await asyncio.to_thread(store.create_job, raw_outlet, parameters)
     task = asyncio.create_task(
         _run_job(job["job_id"], payload, app.state.job_semaphore),
         name=f"newstrace-discovery-{job['job_id']}",
@@ -282,7 +378,7 @@ async def start_discovery(payload: DiscoveryRequest, request: Request) -> dict[s
 
 @app.get("/api/discovery/{job_id}")
 async def discovery_status(job_id: str) -> dict[str, Any]:
-    job = store.get_job(job_id)
+    job = await asyncio.to_thread(store.get_job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Investigation not found.")
     return job
@@ -294,7 +390,7 @@ async def discovery_results(
     limit: int = Query(default=500, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
-    result = store.get_results(job_id)
+    result = await asyncio.to_thread(store.get_results, job_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Investigation not found.")
     if result["status"] not in {"complete", "partial"}:
@@ -310,14 +406,8 @@ async def discovery_results(
     return result
 
 
-@app.get("/api/jobs")
-async def recent_jobs(limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
-    jobs = store.list_jobs(limit)
-    return {"jobs": jobs, "count": len(jobs)}
-
-
 def _all_articles() -> list[dict[str, Any]]:
-    return store.all_articles(limit_jobs=40)
+    return store.all_articles(limit_jobs=100)
 
 
 @app.get("/api/articles")
@@ -332,7 +422,7 @@ async def articles(
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
-    records = _all_articles()
+    records = await asyncio.to_thread(_all_articles)
     needle = q.strip().casefold()
     selected_section = section.strip().casefold()
     selected_source = source.strip().casefold()
@@ -378,7 +468,7 @@ async def articles(
 @app.get("/api/categories")
 async def categories() -> dict[str, Any]:
     sections: dict[str, int] = {}
-    for item in _all_articles():
+    for item in await asyncio.to_thread(_all_articles):
         section = str(item.get("section") or "Unclassified").strip() or "Unclassified"
         sections[section] = sections.get(section, 0) + 1
     ordered = sorted(sections.items(), key=lambda entry: (-entry[1], entry[0].casefold()))
@@ -402,7 +492,7 @@ async def journalists(
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     grouped: dict[str, dict[str, Any]] = {}
-    for article in _all_articles():
+    for article in await asyncio.to_thread(_all_articles):
         author = str(article.get("author") or "Unknown").strip()
         if not author or author.casefold() == "unknown":
             continue
@@ -458,7 +548,7 @@ async def journalists(
 
 @app.get("/api/coverage")
 async def coverage() -> dict[str, Any]:
-    records = _all_articles()
+    records = await asyncio.to_thread(_all_articles)
     author_counts: dict[str, int] = {}
     section_counts: dict[str, int] = {}
     outlet_counts: dict[str, int] = {}
