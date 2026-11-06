@@ -382,11 +382,18 @@ def validate_author(author, title):
     if not author:
         return "Unknown"
     
-    author_lower = author.lower()
-    
-    # Reject generic terms
-    bad_terms = ['news', 'editor', 'team', 'desk', 'report', 'staff', 'bureau']
-    if any(term in author_lower for term in bad_terms):
+    if not isinstance(author, str):
+        return "Unknown"
+
+    author = re.sub(r"\\s+", " ", author).strip()
+    if not author:
+        return "Unknown"
+
+    # Reject generic byline labels as whole words. Substring checks wrongly
+    # rejected real names containing fragments such as "News" (e.g. Newsom).
+    author_tokens = set(re.findall(r"[a-z]+", author.lower()))
+    bad_terms = {"news", "editor", "team", "desk", "report", "staff", "bureau"}
+    if author_tokens & bad_terms:
         return "Unknown"
     
     # Reject if too long (>5 words)
