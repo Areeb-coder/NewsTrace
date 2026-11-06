@@ -28,8 +28,8 @@ class PublicUrlValidationTests(unittest.TestCase):
     def test_accepts_public_hostname_when_dns_is_public(self):
         with patch("utils.url_safety.socket.getaddrinfo", return_value=dns_answer("93.184.216.34")):
             self.assertEqual(
-                validate_public_http_url("https://news.example/world"),
-                "https://news.example/world",
+                validate_public_http_url("https://news.example.org/world"),
+                "https://news.example.org/world",
             )
 
     def test_rejects_private_ip_literal(self):
@@ -48,16 +48,16 @@ class PublicUrlValidationTests(unittest.TestCase):
         answers = dns_answer("93.184.216.34") + dns_answer("10.0.0.9")
         with patch("utils.url_safety.socket.getaddrinfo", return_value=answers):
             with self.assertRaisesRegex(ValueError, "public"):
-                validate_public_http_url("https://mixed.example")
+                validate_public_http_url("https://mixed.example.org")
 
     def test_rejects_local_hosts_credentials_and_nonstandard_ports(self):
         invalid = (
             "http://localhost",
             "http://printer.local",
             "http://service.internal",
-            "https://user:password@news.example",
-            "https://news.example:8443",
-            "ftp://news.example",
+            "https://user:password@news.example.org",
+            "https://news.example.org:8443",
+            "ftp://news.example.org",
             "https://",
         )
         for value in invalid:
@@ -93,12 +93,12 @@ class FakeSession:
 
 class SafeRedirectTests(unittest.TestCase):
     def test_follows_relative_redirect_after_validating_each_hop(self):
-        first = FakeResponse(302, "https://news.example/start", {"Location": "/world"})
-        final = FakeResponse(200, "https://news.example/world")
+        first = FakeResponse(302, "https://news.example.org/start", {"Location": "/world"})
+        final = FakeResponse(200, "https://news.example.org/world")
         session = FakeSession([first, final])
         with patch("utils.url_safety.validate_public_http_url", side_effect=lambda value: value) as validate:
             result = safe_get(
-                "https://news.example/start",
+                "https://news.example.org/start",
                 session=session,
                 timeout=(2, 3),
             )
@@ -109,7 +109,7 @@ class SafeRedirectTests(unittest.TestCase):
         self.assertTrue(first.closed)
 
     def test_rejects_private_redirect_before_making_second_request(self):
-        first = FakeResponse(302, "https://news.example/start", {"Location": "http://127.0.0.1/admin"})
+        first = FakeResponse(302, "https://news.example.org/start", {"Location": "http://127.0.0.1/admin"})
         session = FakeSession([first])
         original_validator = validate_public_http_url
 
@@ -123,7 +123,7 @@ class SafeRedirectTests(unittest.TestCase):
             side_effect=validate_only_private_with_real_checker,
         ):
             with self.assertRaises(ValueError):
-                safe_get("https://news.example/start", session=session)
+                safe_get("https://news.example.org/start", session=session)
         self.assertEqual(len(session.calls), 1)
         self.assertTrue(first.closed)
 
@@ -135,7 +135,7 @@ class SafeRedirectTests(unittest.TestCase):
         session = FakeSession(redirects)
         with patch("utils.url_safety.validate_public_http_url", side_effect=lambda value: value):
             with self.assertRaisesRegex(RuntimeError, "redirect"):
-                safe_get("https://news0.example/", session=session, max_redirects=5)
+                safe_get("https://news0.example.org/", session=session, max_redirects=5)
         self.assertLessEqual(len(session.calls), 6)
 
 
@@ -167,7 +167,7 @@ class BrowserNetworkGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.pattern, "**/*")
 
         blocked = FakeRoute("http://127.0.0.1/private")
-        allowed = FakeRoute("https://news.example/story")
+        allowed = FakeRoute("https://news.example.org/story")
         with patch("utils.url_safety.validate_public_http_url", side_effect=lambda value: (
             (_ for _ in ()).throw(ValueError("not public")) if "127.0.0.1" in value else value
         )):
