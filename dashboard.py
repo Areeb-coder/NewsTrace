@@ -111,164 +111,250 @@ def resolve_outlet(user_input: str):
 
 async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profiles=False, enable_google=False):
     """
-    UNIFIED PIPELINE - One function for all modes
-    - Basic mode: Just article scraping
-    - Profile mode: + Author profile enrichment
-    - Full mode: + Google enrichment
+    Run discovery, extraction and optional enrichment with visible progress.
     """
-    results = {'articles': [], 'profiles': {}, 'stats': {}}
-    progress = st.progress(0)
-    step_count = 3 + int(enable_profiles) + int(enable_google)  # Total steps based on enabled features
-    step = 0
+    results = {"articles": [], "profiles": {}, "stats": {}}
+    progress_bar = st.progress(0.0, text="Preparing the investigation…")
+    status_box = st.status("Preparing NewsTrace pipeline", expanded=True)
+    last_render = 0.0
+    latest_fraction = 0.0
 
-    # STEP 1: Collect Article URLs (shared by all modes)
-    start_time = time.time()
-    urls = await collect_article_urls(url, max_articles)
-    if not urls:
-        return None
-    step += 1
-    progress.progress(step / step_count)
-    elapsed = time.time() - start_time
-    st.info(f"Step {step}/{step_count}: Collected {len(urls)} article URLs in {elapsed:.2f} seconds.")
+    phase_ranges = {
+        "API discovery": (0.02, 0.09),
+        "HTML discovery": (0.09, 0.29),
+        "Article discovery": (0.29, 0.30),
+        "Article extraction": (0.30, 0.86),
+        "Author profiles": (0.86, 0.95),
+        "Search enrichment": (0.95, 0.99),
+    }
 
-    results['stats']['urls_found'] = len(urls)
+    def update_progress(stage, current, total, detail):
+        nonlocal last_render, latest_fraction
+        start_fraction, end_fraction = phase_ranges.get(stage, (latest_fraction, latest_fraction))
+        fraction = end_fraction if not total else start_fraction + (
+            (end_fraction - start_fraction) * max(0, min(1, current / total))
+        )
+        latest_fraction = max(latest_fraction, min(0.995, fraction))
+        now = time.monotonic()
+        is_stage_done = bool(total and current >= total)
+        if now - last_render < 0.35 and not is_stage_done:
+            return
+        last_render = now
+        safe_detail = str(detail).replace("\n", " ").strip()
+        try:
+            progress_bar.progress(
+                latest_fraction,
+                text=f"{stage} · {safe_detail[:180]}",
+            )
+            status_box.update(label=f"{stage}", state="running", expanded=False)
+        except Exception:
+            # Progress rendering must never abort the scraping pipeline.
+            pass
 
-    # STEP 2: Scrape Articles in Parallel (shared by all modes)
-    start_time = time.time()
-    articles_data = await scrape_articles_parallel(urls, max_workers=10, target_authors=200)
-    if not articles_data:
-        return None
-    step += 1
-    progress.progress(step / step_count)
-    elapsed = time.time() - start_time
-    st.info(f"Step {step}/{step_count}: Scraped {len(articles_data)} articles in {elapsed:.2f} seconds.")
+    try:
+        status_box.update(label="Discovering article URLs", state="running", expanded=True)
+        urls = await collect_article_urls(
+            url,
+            max_articles,
+            progress_callback=update_progress,
+            max_pages=24,
+        )
+        results["stats"]["urls_found"] = len(urls)
 
-    results['articles'] = articles_data
-    results['stats']['articles_scraped'] = len(articles_data)
+        if not urls:
+            raise RuntimeError(
+                "NewsTrace could not find article URLs on this publication. "
+                "Try pasting a direct section URL (for example, its Politics or World page). "
+                "Some sites block automated browsing or use URL patterns NewsTrace cannot identify."
+            )
 
-    # Get unique authors
-    unique_authors = list(set(a['author'] for a in articles_data if a.get('author') != 'Unknown'))
-    results['stats']['unique_authors'] = len(unique_authors)
+        update_progress(
+            "Article discovery",
+            len(urls),
+            len(urls),
+            f"Discovery complete · {len(urls)} URLs ready for extraction",
+        )
 
-    # STEP 3: Profile Enrichment (optional - only if enabled)
-    if enable_profiles and unique_authors:
-        start_time = time.time()
-        profiles = {}
+        articles_data = await scrape_articles_parallel(
+            urls,
+            max_workers=6,
+            target_authors=200,
+            progress_callback=update_progress,
+        )
+        if not articles_data:
+            raise RuntimeError(
+                f"Found {len(urls)} article URLs, but none could be parsed. "
+                "The publication may block automated browsers, require JavaScript/cookies, "
+                "or return access-denied pages. Try another section URL."
+            )
 
-        # Scrape author profile pages (5 concurrent)
-        semaphore = asyncio.Semaphore(5)
+        results["articles"] = articles_data
+        results["stats"]["articles_scraped"] = len(articles_data)
+        results["stats"]["article_failures"] = max(0, len(urls) - len(articles_data))
 
-        async def get_profile(author):
-            async with semaphore:
-                profile_url = await get_author_profile_page(author, url)
-                if profile_url:
-                    details = await scrape_author_details(profile_url)
-                    if details:
-                        details['profile_url'] = profile_url
-                        return author, details
-                return author, None
+        articles_df = pd.DataFrame(articles_data)
+        if "author" not in articles_df.columns:
+            articles_df["author"] = "Unknown"
+        articles_df["author"] = articles_df["author"].fillna("Unknown")
+        unique_authors = sorted({
+            str(author).strip()
+            for author in articles_df["author"].tolist()
+            if author and str(author).strip().lower() != "unknown"
+        })
+        results["stats"]["unique_authors"] = len(unique_authors)
 
-        tasks = [get_profile(a) for a in unique_authors[:50]]
-        profile_results = await asyncio.gather(*tasks)
+        if enable_profiles and unique_authors:
+            profile_targets = unique_authors[:20]
+            profiles = {}
+            semaphore = asyncio.Semaphore(4)
+            completed_profiles = 0
 
-        for author, details in profile_results:
-            if details:
-                profiles[author] = details
+            async def get_profile(author):
+                nonlocal completed_profiles
+                async with semaphore:
+                    try:
+                        async def collect_profile():
+                            profile_url = await get_author_profile_page(author, url)
+                            if not profile_url:
+                                return None
+                            details = await scrape_author_details(profile_url)
+                            if details:
+                                details["profile_url"] = profile_url
+                                return details
+                            return None
 
-        results['profiles'] = profiles
-        results['stats']['profiles_found'] = len(profiles)
-        step += 1
-        progress.progress(step / step_count)
-        elapsed = time.time() - start_time
-        st.info(f"Step {step}/{step_count}: Enriched {len(profiles)} author profiles in {elapsed:.2f} seconds.")
+                        details = await asyncio.wait_for(collect_profile(), timeout=22)
+                        if details:
+                            profiles[author] = details
+                    except asyncio.TimeoutError:
+                        print(f"Profile lookup timed out for {author}")
+                    except Exception as exc:
+                        print(f"Profile lookup failed for {author}: {type(exc).__name__}: {exc}")
+                    finally:
+                        completed_profiles += 1
+                        update_progress(
+                            "Author profiles",
+                            completed_profiles,
+                            len(profile_targets),
+                            f"Checked {completed_profiles}/{len(profile_targets)} journalist profiles · {len(profiles)} found",
+                        )
 
-    # STEP 4: Google Enrichment (optional - only if enabled)
-    if enable_google and unique_authors:
-        start_time = time.time()
-        google_profiles = enrich_journalists_batch(unique_authors[:30], news_outlet=outlet_name, delay=1.0)
+            await asyncio.gather(*(get_profile(author) for author in profile_targets))
+            results["profiles"] = profiles
+            results["stats"]["profiles_found"] = len(profiles)
 
-        # Merge Google data into profiles
-        if not results['profiles']:
-            results['profiles'] = {}
+        elif enable_profiles:
+            update_progress("Author profiles", 1, 1, "No identified authors available for profile enrichment")
 
-        for gprofile in google_profiles:
-            author = gprofile['name']
-            if author not in results['profiles']:
-                results['profiles'][author] = {}
-
-            # Merge social media
-            for field in ['twitter', 'linkedin', 'instagram', 'email', 'workplace', 'bio']:
-                if gprofile.get(field):
-                    results['profiles'][author][field] = gprofile[field]
-
-        results['stats']['google_enriched'] = len(google_profiles)
-        step += 1
-        progress.progress(step / step_count)
-        elapsed = time.time() - start_time
-        st.info(f"Step {step}/{step_count}: Enriched {len(google_profiles)} profiles with Google data in {elapsed:.2f} seconds.")
-
-    # STEP 5: Build final DataFrame directly and merge profile fields
-    articles_df = pd.DataFrame(results['articles']) if results['articles'] else pd.DataFrame()
-    if articles_df.empty:
-        return None
-
-    if 'author' not in articles_df.columns:
-        articles_df['author'] = 'Unknown'
-
-    # Merge profile fields from results['profiles']
-    profiles_map = results.get('profiles') or {}
-    if profiles_map:
-        # Collect all possible keys from profiles
-        all_keys = set()
-        for _, p in profiles_map.items():
-            if isinstance(p, dict):
-                all_keys.update(p.keys())
-        # For each key, map values by author
-        for key in sorted(all_keys):
-            if key == 'name':
-                continue
-            if key not in articles_df.columns:
-                articles_df[key] = articles_df['author'].map(
-                    lambda a: profiles_map.get(a, {}).get(key) if isinstance(profiles_map.get(a, {}), dict) else None
+        if enable_google and unique_authors:
+            if not os.getenv("SERP_API_KEY", "").strip():
+                st.warning(
+                    "Search enrichment was skipped because SERP_API_KEY is not configured. "
+                    "Add it in your hosting provider's environment settings to enable this option."
+                )
+                results["stats"]["google_enriched"] = 0
+            else:
+                update_progress(
+                    "Search enrichment", 0, 1,
+                    f"Searching public profiles for up to {min(30, len(unique_authors))} journalists",
+                )
+                google_profiles = await asyncio.to_thread(
+                    enrich_journalists_batch,
+                    unique_authors[:30],
+                    outlet_name,
+                    0.5,
                 )
 
-    progress.progress(1.0)  # Complete progress bar
-    st.success("✅ Scraping pipeline completed successfully!")
+                if not results["profiles"]:
+                    results["profiles"] = {}
+                for profile in google_profiles or []:
+                    author = profile.get("name")
+                    if not author:
+                        continue
+                    results["profiles"].setdefault(author, {})
+                    for field in ("twitter", "linkedin", "instagram", "email", "workplace", "bio"):
+                        if profile.get(field):
+                            results["profiles"][author][field] = profile[field]
 
-    return articles_df, results['stats']
+                results["stats"]["google_enriched"] = len(google_profiles or [])
+                update_progress(
+                    "Search enrichment", 1, 1,
+                    f"Search enrichment complete · {len(google_profiles or [])} profiles returned",
+                )
+
+        profiles_map = results.get("profiles") or {}
+        if profiles_map:
+            all_keys = set()
+            for profile in profiles_map.values():
+                if isinstance(profile, dict):
+                    all_keys.update(profile.keys())
+
+            for key in sorted(all_keys):
+                if key == "name" or key in articles_df.columns:
+                    continue
+                articles_df[key] = articles_df["author"].map(
+                    lambda author: (
+                        profiles_map.get(author, {}).get(key)
+                        if isinstance(profiles_map.get(author, {}), dict)
+                        else None
+                    )
+                )
+
+        results["stats"]["articles_scraped"] = len(articles_df)
+        progress_bar.progress(1.0, text="Investigation complete")
+        status_box.update(
+            label=f"Investigation complete · {len(articles_df)} articles · {len(unique_authors)} journalists",
+            state="complete",
+            expanded=False,
+        )
+        return articles_df, results["stats"]
+
+    except Exception as exc:
+        status_box.update(label="Investigation could not be completed", state="error", expanded=True)
+        progress_bar.empty()
+        raise
 
 
 def run_unified_pipeline(user_query, max_articles, enable_profiles, enable_google):
-    """Wrapper to run async pipeline in Streamlit"""
-    loop = asyncio.new_event_loop()
+    """Resolve the source, run the async pipeline and surface actionable errors."""
+    source_status = st.status("Resolving the news outlet…", expanded=False)
     try:
-        asyncio.set_event_loop(loop)
-
-        # Resolve website live (no predefined mapping)
-        with st.spinner("Resolving the news outlet…"):
-            url, outlet_label = resolve_outlet(user_query)
-            if not url:
-                st.error("Could not resolve this outlet. Paste its full website URL and try again.")
-                return None, None
-            st.success(f"Source resolved: {url}")
-
-        steps = ["Article discovery", "Parallel extraction"]
-        if enable_profiles:
-            steps.append("Author profiles")
-        if enable_google:
-            steps.append("Search enrichment")
-
-        with st.spinner(f"Running { ' · '.join(steps) }…"):
-            result = loop.run_until_complete(
-                unified_scraping_pipeline(url, outlet_label or user_query, max_articles, enable_profiles, enable_google)
+        url, outlet_label = resolve_outlet(user_query)
+        if not url:
+            source_status.update(
+                label="Could not resolve the publication",
+                state="error",
+                expanded=True,
             )
-        if result:
-            return result
-        return None, None
-    finally:
-        asyncio.set_event_loop(None)
-        loop.close()
+            st.error(
+                "NewsTrace could not identify that publication. Paste its full website URL "
+                "(including https://) and try again."
+            )
+            return None, None
 
+        source_status.update(
+            label=f"Source resolved · {outlet_label or url}",
+            state="complete",
+            expanded=False,
+        )
+        return asyncio.run(
+            unified_scraping_pipeline(
+                url,
+                outlet_label or user_query,
+                max_articles,
+                enable_profiles,
+                enable_google,
+            )
+        )
+    except Exception as exc:
+        source_status.update(label="Investigation failed", state="error", expanded=True)
+        st.error(f"**NewsTrace could not complete this investigation.** {exc}")
+        st.caption(
+            "You can retry with a direct section URL or a smaller article limit. "
+            "The pipeline now reports the stage and count reached before the failure."
+        )
+        print(f"NewsTrace pipeline error: {type(exc).__name__}: {exc}")
+        return None, None
 
 def create_chart(df):
     """Bar chart of top authors"""
