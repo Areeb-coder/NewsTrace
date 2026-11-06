@@ -13,7 +13,7 @@ from urllib.parse import urlparse, parse_qs
 from utils.article_collector import collect_article_urls
 from scrapers.parallel_scraper import scrape_articles_parallel
 from scrapers.author_profiles import get_author_profile_page, scrape_author_details
-from utils.google_enrichment import enrich_journalists_batch
+from utils.google_enrichment import SERPAPI_KEY, search_journalist_profile
 from utils.supabase_backend import save_articles, save_journalist_profiles, check_connection
 import os
 import re
@@ -247,7 +247,7 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
             update_progress("Author profiles", 1, 1, "No identified authors available for profile enrichment")
 
         if enable_google and unique_authors:
-            if not os.getenv("SERP_API_KEY", "").strip():
+            if not SERPAPI_KEY:
                 st.warning(
                     "Search enrichment was skipped because SERP_API_KEY is not configured. "
                     "Add it in your hosting provider's environment settings to enable this option."
@@ -258,16 +258,40 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
                     "Search enrichment", 0, 1,
                     f"Searching public profiles for up to {min(30, len(unique_authors))} journalists",
                 )
-                google_profiles = await asyncio.to_thread(
-                    enrich_journalists_batch,
-                    unique_authors[:30],
-                    outlet_name,
-                    0.5,
-                )
+                google_targets = unique_authors[:30]
+                google_profiles = []
+                google_semaphore = asyncio.Semaphore(3)
+                completed_searches = 0
+
+                async def search_profile(author):
+                    nonlocal completed_searches
+                    profile = None
+                    async with google_semaphore:
+                        try:
+                            profile = await asyncio.to_thread(
+                                search_journalist_profile,
+                                author,
+                                outlet_name,
+                            )
+                        except Exception as exc:
+                            print(f"Search enrichment failed for {author}: {type(exc).__name__}: {exc}")
+                        finally:
+                            completed_searches += 1
+                            update_progress(
+                                "Search enrichment",
+                                completed_searches,
+                                len(google_targets),
+                                f"Checked {completed_searches}/{len(google_targets)} journalists · "
+                                f"{len(google_profiles)} profiles returned",
+                            )
+                    if profile:
+                        google_profiles.append(profile)
+
+                await asyncio.gather(*(search_profile(author) for author in google_targets))
 
                 if not results["profiles"]:
                     results["profiles"] = {}
-                for profile in google_profiles or []:
+                for profile in google_profiles:
                     author = profile.get("name")
                     if not author:
                         continue
@@ -276,10 +300,10 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
                         if profile.get(field):
                             results["profiles"][author][field] = profile[field]
 
-                results["stats"]["google_enriched"] = len(google_profiles or [])
+                results["stats"]["google_enriched"] = len(google_profiles)
                 update_progress(
-                    "Search enrichment", 1, 1,
-                    f"Search enrichment complete · {len(google_profiles or [])} profiles returned",
+                    "Search enrichment", len(google_targets), len(google_targets),
+                    f"Search enrichment complete · {len(google_profiles)} profiles returned",
                 )
 
         profiles_map = results.get("profiles") or {}
