@@ -10,9 +10,12 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import urlparse
 import time
+import os
+from dotenv import load_dotenv
 
 
-SERPAPI_KEY = "5a0974604595d6a98d345fc137f734e5a6f7531c36e0425a5608fd7cbb830397"
+load_dotenv()
+SERPAPI_KEY = os.getenv("SERP_API_KEY", "").strip()
 
 
 def search_journalist_profile(author_name, news_outlet=None):
@@ -20,6 +23,10 @@ def search_journalist_profile(author_name, news_outlet=None):
     Search Google for journalist profile using SerpAPI
     Returns: dict with social media, workplace, bio, etc.
     """
+    # Enrichment is optional; never make a request without a configured key.
+    if not SERPAPI_KEY:
+        return None
+
     # Build search query
     if news_outlet:
         query = f'"{author_name}" journalist {news_outlet}'
@@ -157,6 +164,10 @@ def enrich_journalists_batch(journalists, news_outlet=None, delay=1.0):
     Returns:
         List of enriched profiles
     """
+    if not SERPAPI_KEY:
+        print("⚠️ SERP_API_KEY is not configured; skipping Google enrichment.")
+        return []
+
     enriched = []
     
     for i, journalist in enumerate(journalists, 1):
