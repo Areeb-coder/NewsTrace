@@ -16,7 +16,9 @@ from scrapers.author_profiles import get_author_profile_page, scrape_author_deta
 from utils.google_enrichment import enrich_journalists_batch
 from utils.supabase_backend import save_articles, save_journalist_profiles, check_connection
 import os
+import re
 import time
+from html import escape
 
 # Page Config
 st.set_page_config(page_title="NewsTrace · Media Intelligence", page_icon="🔎", layout="wide", initial_sidebar_state="expanded")
@@ -289,8 +291,6 @@ def create_chart(df):
     
     fig.update_layout(
         title='Top 10 Authors by Article Count',
-        xaxis=dict(title='Articles', tickmode='linear', dtick=1),
-        yaxis=dict(title='', autorange='reversed'),
         height=400,
         showlegend=False,
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
@@ -799,6 +799,8 @@ if "df" in st.session_state and st.session_state["df"] is not None:
     df = st.session_state["df"].copy()
     stats = st.session_state.get("stats", {})
     outlet_label = st.session_state.get("outlet", "Current investigation")
+    safe_outlet_label = escape(str(outlet_label))
+    safe_file_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", str(outlet_label)).strip("_") or "newstrace"
     if "author" not in df.columns:
         df["author"] = "Unknown"
     df["author"] = df["author"].fillna("Unknown")
@@ -815,7 +817,7 @@ if "df" in st.session_state and st.session_state["df"] is not None:
         f"""
         <div class="nt-section-head">
           <div class="nt-overline">Current investigation</div>
-          <div class="nt-section-title">{outlet_label}</div>
+          <div class="nt-section-title">{safe_outlet_label}</div>
           <div class="nt-section-copy">Collected records are grouped into overview, coverage, journalist and dataset views.</div>
         </div>
         """,
@@ -1022,7 +1024,7 @@ if "df" in st.session_state and st.session_state["df"] is not None:
             st.download_button(
                 "↓  Export CSV",
                 filtered_df.to_csv(index=False).encode("utf-8"),
-                f"{outlet_label.replace(' ', '_')}_newstrace.csv",
+                f"{safe_file_stem}_newstrace.csv",
                 "text/csv",
                 use_container_width=True,
             )
@@ -1030,7 +1032,7 @@ if "df" in st.session_state and st.session_state["df"] is not None:
             st.download_button(
                 "↓  Export JSON",
                 filtered_df.to_json(orient="records", indent=2).encode("utf-8"),
-                f"{outlet_label.replace(' ', '_')}_newstrace.json",
+                f"{safe_file_stem}_newstrace.json",
                 "application/json",
                 use_container_width=True,
             )
