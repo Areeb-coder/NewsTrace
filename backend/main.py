@@ -8,10 +8,13 @@ available during the migration.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +22,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -36,6 +39,51 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_OUT = ROOT / "frontend" / "out"
 MAX_ACTIVE_JOBS = max(1, min(int(os.getenv("NEWSTRACE_MAX_ACTIVE_JOBS", "2")), 4))
+DISCOVERY_START_LIMIT = max(1, int(os.getenv("NEWSTRACE_DISCOVERY_RATE_LIMIT", "5")))
+DISCOVERY_START_WINDOW = max(60, int(os.getenv("NEWSTRACE_DISCOVERY_RATE_WINDOW", "600")))
+_start_attempts: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _validate_public_http_url(value: str) -> str:
+    """Reject obvious local/private targets and malformed URL credentials."""
+    parsed = urlparse(value)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Use a valid public http:// or https:// publication URL.")
+    if parsed.username or parsed.password:
+        raise ValueError("Publication URLs must not contain embedded usernames or passwords.")
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    if (
+        hostname == "localhost"
+        or hostname.endswith((".localhost", ".local", ".internal", ".test"))
+    ):
+        raise ValueError("Local and internal network addresses cannot be used as publication sources.")
+
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if address is not None and not address.is_global:
+        raise ValueError("Private, loopback and link-local IP addresses cannot be used as publication sources.")
+
+    if parsed.port not in (None, 80, 443):
+        raise ValueError("Publication URLs may use only the standard HTTP or HTTPS ports.")
+    return value
+
+
+def _check_discovery_rate_limit(client_key: str) -> None:
+    now = time.monotonic()
+    attempts = _start_attempts[client_key]
+    cutoff = now - DISCOVERY_START_WINDOW
+    while attempts and attempts[0] < cutoff:
+        attempts.popleft()
+    if len(attempts) >= DISCOVERY_START_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many investigations were started from this connection. Please wait before starting another one.",
+            headers={"Retry-After": str(DISCOVERY_START_WINDOW)},
+        )
+    attempts.append(now)
 
 
 class DiscoveryRequest(BaseModel):
@@ -80,7 +128,8 @@ async def _run_job(job_id: str, request: DiscoveryRequest, semaphore: asyncio.Se
                     "NewsTrace could not identify that publication. Enter its full website URL, including https://, or check the publication name."
                 )
 
-            discovery_url = _discover_from_input(raw_input, resolved_url)
+            _validate_public_http_url(resolved_url)
+            discovery_url = _validate_public_http_url(_discover_from_input(raw_input, resolved_url))
             outlet_label = outlet_label or urlparse(resolved_url).netloc
             store.set_source(job_id, resolved_url, outlet_label)
             store.update_progress(
@@ -208,9 +257,18 @@ async def health() -> dict[str, Any]:
 
 
 @app.post("/api/discovery/start", status_code=status.HTTP_202_ACCEPTED)
-async def start_discovery(payload: DiscoveryRequest) -> dict[str, Any]:
+async def start_discovery(payload: DiscoveryRequest, request: Request) -> dict[str, Any]:
+    client_key = request.client.host if request.client else "unknown"
+    _check_discovery_rate_limit(client_key)
+
+    raw_outlet = payload.outlet.strip()
+    candidate = raw_outlet if raw_outlet.startswith(("http://", "https://")) else f"https://{raw_outlet}"
+    candidate_parts = urlparse(candidate)
+    if candidate_parts.netloc and "." in (candidate_parts.hostname or ""):
+        _validate_public_http_url(candidate)
+
     parameters = payload.model_dump()
-    job = store.create_job(payload.outlet.strip(), parameters)
+    job = store.create_job(raw_outlet, parameters)
     task = asyncio.create_task(
         _run_job(job["job_id"], payload, app.state.job_semaphore),
         name=f"newstrace-discovery-{job['job_id']}",
