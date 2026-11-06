@@ -8,6 +8,7 @@ launching a new Chromium process for every article.
 import asyncio
 import json
 import re
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
@@ -167,6 +168,7 @@ def _parse_article_html(article_url, html, diagnostics=None):
         "section": section,
         "date": published_date,
         "url": article_url,
+        "image_url": extract_image(soup, article_url),
     }
 
     if author_name and author_name != "Unknown":
@@ -422,6 +424,34 @@ def extract_title(soup):
     # Fallback to <title>
     title = soup.find('title')
     return title.get_text(strip=True) if title else None
+
+
+def extract_image(soup, page_url=None):
+    """Extract a publisher's lead image from standard metadata or article markup."""
+    candidates = (
+        soup.find("meta", attrs={"property": "og:image"}),
+        soup.find("meta", attrs={"name": "twitter:image"}),
+        soup.find("meta", attrs={"property": "twitter:image"}),
+    )
+    for meta in candidates:
+        if meta and meta.get("content"):
+            candidate = urljoin(page_url or "", meta["content"].strip())
+            if candidate.startswith(("https://", "http://")):
+                return candidate
+
+    article_image = soup.select_one("article figure img, article picture img, main article img, article img")
+    if article_image:
+        raw_src = (
+            article_image.get("src")
+            or article_image.get("data-src")
+            or article_image.get("data-lazy-src")
+        )
+        if raw_src:
+            candidate = urljoin(page_url or "", raw_src.strip())
+            if candidate.startswith(("https://", "http://")):
+                return candidate
+
+    return None
 
 
 def extract_section(soup):
