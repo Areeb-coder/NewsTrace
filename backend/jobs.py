@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,35 @@ from typing import Any
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+class ProgressThrottle:
+    """Bound SQLite progress writes while preserving stage changes and completion."""
+
+    def __init__(self, min_interval_seconds: float = 0.3) -> None:
+        self.min_interval_seconds = max(0.0, float(min_interval_seconds))
+        self._last_at = 0.0
+        self._last_stage: str | None = None
+
+    def should_report(
+        self,
+        stage: str,
+        current: int,
+        total: int,
+        now: float | None = None,
+    ) -> bool:
+        current_time = time.monotonic() if now is None else float(now)
+        stage_changed = stage != self._last_stage
+        stage_complete = total > 0 and current >= total
+        if (
+            not stage_changed
+            and not stage_complete
+            and current_time - self._last_at < self.min_interval_seconds
+        ):
+            return False
+        self._last_at = current_time
+        self._last_stage = stage
+        return True
 
 
 def _json(value: Any) -> str:
