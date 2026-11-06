@@ -98,6 +98,8 @@ For local development, jobs are stored in `data/newstrace.sqlite3`. SQLite is no
 
 Production uses the single FastAPI/Next.js Docker service defined in `render.yaml` and `Dockerfile.web`.
 
+**Render plan warning:** the committed Blueprint currently sets `plan: free` to keep previews/testing cost-free. Render Free web services are not intended for production: they spin down after 15 minutes without inbound traffic, may restart at any time, and lose local filesystem changes when they spin down or restart. Supabase preserves completed job results, but a running in-process investigation can be marked `interrupted`. Before a real production launch, move the Render service to a paid always-on compute plan. Keep one instance/worker with the current in-process scheduler; a paid plan does not remove the need for a durable queue if jobs must survive restarts. See [DEPLOYMENT.md](DEPLOYMENT.md).
+
 Apply the SQL migration in [`supabase/migrations/20261106_newstrace_discovery_jobs.sql`](supabase/migrations/20261106_newstrace_discovery_jobs.sql) to your Supabase project, then configure these Render environment variables:
 
 | Variable | Required | Purpose |
