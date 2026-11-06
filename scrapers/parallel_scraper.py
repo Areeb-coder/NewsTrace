@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 
 from scrapers.article_scraper import scrape_journalist_info
+from utils.url_safety import install_public_network_guard
 
 
 def _notify(callback, current, total, detail):
@@ -67,6 +68,7 @@ async def scrape_articles_parallel(
     failure_samples = []
     failed_count = 0
     processed_count = 0
+    started_count = 0
     started = time.monotonic()
     stop_event = asyncio.Event()
     queue = asyncio.Queue()
@@ -93,6 +95,7 @@ async def scrape_articles_parallel(
                 ),
                 ignore_https_errors=True,
             )
+            await install_public_network_guard(context)
             context.set_default_navigation_timeout(12000)
             context.set_default_timeout(5000)
 
@@ -106,6 +109,13 @@ async def scrape_articles_parallel(
                         except asyncio.QueueEmpty:
                             break
 
+                        started_count += 1
+                        _notify(
+                            progress_callback,
+                            processed_count,
+                            total,
+                            f"Fetching article {started_count}/{total} with worker {worker_number + 1}/{worker_count}: {_safe_host(url)}{_safe_path(url)}",
+                        )
                         diagnostics = {}
                         try:
                             data = await scrape_journalist_info(
