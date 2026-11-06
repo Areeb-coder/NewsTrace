@@ -108,12 +108,17 @@ def is_article_url(url, base_domain):
     if any(re.search(pattern, path) for pattern in explicit_patterns):
         return True
 
-    # A common newsroom pattern is /section/region/descriptive-headline-slug.
-    # Require a substantial final slug to avoid classifying every category page.
-    if len(parts) >= 3:
-        leaf = parts[-1]
-        if len(leaf) >= 24 and ("-" in leaf or re.search(r"\d", leaf)):
-            return True
+    # Many publishers use /world/descriptive-headline or even /headline-slug.
+    # A long, hyphenated leaf is a useful fallback when the route has no
+    # explicit /article/ or date segment. Short category paths are excluded.
+    leaf = parts[-1]
+    minimum_slug_length = 30 if len(parts) == 1 else 24
+    if (
+        len(leaf) >= minimum_slug_length
+        and ("-" in leaf or re.search(r"\d", leaf))
+        and leaf not in SECTION_KEYWORDS
+    ):
+        return True
 
     return False
 
