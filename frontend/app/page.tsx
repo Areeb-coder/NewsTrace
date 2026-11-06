@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -183,10 +184,12 @@ function LeadStory({
 function JobTracker({
   job,
   onDismiss,
+  onRetry,
   warnings,
 }: {
   job: DiscoveryJob;
   onDismiss: () => void;
+  onRetry: () => void;
   warnings?: string[];
 }) {
   const done = job.status === "complete" || job.status === "partial";
@@ -237,7 +240,10 @@ function JobTracker({
       {failed ? (
         <div className="job-topline" style={{ marginTop: 13 }}>
           <span className="table-meta">THE INVESTIGATION DID NOT COMPLETE</span>
-          <button className="secondary-button" onClick={onDismiss}>Dismiss</button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="action-button" onClick={onRetry}>Retry with saved settings</button>
+            <button className="secondary-button" onClick={onDismiss}>Dismiss</button>
+          </div>
         </div>
       ) : null}
     </div>
@@ -371,6 +377,7 @@ export default function HomePage() {
   const [archiveTotal, setArchiveTotal] = useState(0);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveQuery, setArchiveQuery] = useState("");
+  const archiveSearchRef = useRef<HTMLInputElement>(null);
   const [archiveSection, setArchiveSection] = useState("");
   const [archiveSource, setArchiveSource] = useState("");
   const [archiveSort, setArchiveSort] = useState("latest");
@@ -429,6 +436,30 @@ export default function HomePage() {
     const timer = window.setTimeout(() => setToast(""), 3800);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    const handleKeyboard = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditing = Boolean(
+        target?.closest("input, textarea, select, [contenteditable='true']"),
+      );
+      if (event.key === "/" && !isEditing) {
+        event.preventDefault();
+        setDesk("archive");
+      }
+      if (event.key === "Escape") {
+        if (selectedArticle) setSelectedArticle(null);
+        else if (showDiscovery) setShowDiscovery(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyboard);
+    return () => window.removeEventListener("keydown", handleKeyboard);
+  }, [selectedArticle, showDiscovery]);
+
+  useEffect(() => {
+    if (desk === "archive") archiveSearchRef.current?.focus();
+  }, [desk]);
+
 
   useEffect(() => {
     if (!activeJobId) return;
@@ -699,6 +730,17 @@ export default function HomePage() {
         <JobTracker
           job={activeJob}
           warnings={jobWarnings}
+          onRetry={() => {
+            const parameters = activeJob.parameters || {};
+            setOutlet(String(parameters.outlet || activeJob.outlet || ""));
+            setMaxArticles(Number(parameters.max_articles || 150));
+            setEnableProfiles(Boolean(parameters.enable_profiles));
+            setEnableGoogle(Boolean(parameters.enable_google));
+            setActiveJob(null);
+            setActiveJobId("");
+            setJobWarnings([]);
+            setShowDiscovery(true);
+          }}
           onDismiss={() => { setActiveJob(null); setActiveJobId(""); setJobWarnings([]); }}
         />
       ) : null}
@@ -764,7 +806,7 @@ export default function HomePage() {
           <div className="toolbar">
             <div className="field">
               <label htmlFor="archive-query">Search the record</label>
-              <input id="archive-query" value={archiveQuery} onChange={(event) => { setArchiveQuery(event.target.value); setArchiveOffset(0); }} placeholder="Search headline, journalist, publication…" />
+              <input ref={archiveSearchRef} id="archive-query" value={archiveQuery} onChange={(event) => { setArchiveQuery(event.target.value); setArchiveOffset(0); }} placeholder="Search headline, journalist, publication…" />
             </div>
             <div className="field small">
               <label htmlFor="archive-section">Section</label>
