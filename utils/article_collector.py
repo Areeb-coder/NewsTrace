@@ -288,6 +288,8 @@ async def crawl_sections_parallel(
                 )
 
                 browser_error = None
+                browser_loaded = False
+                link_base = current_url
                 hrefs = []
                 try:
                     response = await page.goto(
@@ -301,22 +303,23 @@ async def crawl_sections_parallel(
                     hrefs = await page.locator("a[href]").evaluate_all(
                         "(anchors) => anchors.map((anchor) => anchor.href)"
                     )
+                    browser_loaded = True
                 except Exception as exc:
                     browser_error = f"{type(exc).__name__}: {exc}"
                     try:
-                        final_url, listing_html = await asyncio.to_thread(
+                        link_base, listing_html = await asyncio.to_thread(
                             _fetch_listing_html, current_url
                         )
                         listing_soup = BeautifulSoup(listing_html, "lxml")
                         hrefs = [
-                            urljoin(final_url, anchor.get("href"))
+                            urljoin(link_base, anchor.get("href"))
                             for anchor in listing_soup.select("a[href]")
                         ]
                         _notify(
                             progress_callback,
                             len(visited_pages),
                             max_pages,
-                            f"Browser listing fetch failed; HTTP fallback recovered {len(hrefs)} links",
+                            f"Browser listing failed; HTTP fallback recovered {len(hrefs)} links",
                         )
                     except Exception as fallback_exc:
                         failed_pages += 1
@@ -326,24 +329,27 @@ async def crawl_sections_parallel(
                         )
                         continue
 
-                    for href in hrefs:
-                        absolute = normalize_url(urljoin(current_url, href))
-                        if not absolute or not same_domain(absolute, homepage):
-                            continue
+                # Process links from either the browser or the HTTP fallback.
+                for href in hrefs:
+                    absolute = normalize_url(urljoin(link_base, href))
+                    if not absolute or not same_domain(absolute, homepage):
+                        continue
 
-                        if is_article_url(absolute, homepage):
-                            article_urls.add(absolute)
-                            if len(article_urls) >= target:
-                                break
-                        elif (
-                            is_section_page(absolute, homepage)
-                            and absolute not in queued_pages
-                            and absolute not in visited_pages
-                        ):
-                            queued_pages.add(absolute)
-                            pending.append(absolute)
+                    if is_article_url(absolute, homepage):
+                        article_urls.add(absolute)
+                        if len(article_urls) >= target:
+                            break
+                    elif (
+                        is_section_page(absolute, homepage)
+                        and absolute not in queued_pages
+                        and absolute not in visited_pages
+                    ):
+                        queued_pages.add(absolute)
+                        pending.append(absolute)
 
-                    # Follow a single explicit next-page link, if available.
+                # The HTTP fallback already supplied the link list. Only query
+                # Playwright for a next-page control when its navigation worked.
+                if browser_loaded:
                     next_locator = page.locator(
                         'a[rel="next"], a.next, a[aria-label*="next" i]'
                     ).first
@@ -363,9 +369,12 @@ async def crawl_sections_parallel(
                             queued_pages.add(next_url)
                             pending.append(next_url)
 
-                except Exception as exc:
-                    failed_pages += 1
-                    print(f"Discovery page failed ({current_url}): {type(exc).__name__}: {exc}")
+                _notify(
+                    progress_callback,
+                    len(visited_pages),
+                    max_pages,
+                    f"{len(article_urls)} article URLs found · {failed_pages} page failures · {len(pending)} queued",
+                )
                 finally:
                     _notify(
                         progress_callback,
