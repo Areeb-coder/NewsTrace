@@ -57,15 +57,18 @@ async def scrape_author_details(author_profile_url):
     """
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        
+        context = await browser.new_context()
+        await install_public_network_guard(context)
+        page = await context.new_page()
+
         try:
             await page.goto(author_profile_url, timeout=8000)
             html = await page.content()
-            await browser.close()
-        except:
-            await browser.close()
+        except Exception:
             return None
+        finally:
+            await context.close()
+            await browser.close()
     
     soup = BeautifulSoup(html, 'lxml')
     
