@@ -371,12 +371,6 @@ async def crawl_sections_parallel(
                                 queued_pages.add(next_url)
                                 pending.append(next_url)
 
-                    _notify(
-                        progress_callback,
-                        len(visited_pages),
-                        max_pages,
-                        f"{len(article_urls)} article URLs found · {failed_pages} page failures · {len(pending)} queued",
-                    )
                 finally:
                     _notify(
                         progress_callback,
