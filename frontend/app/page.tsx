@@ -369,6 +369,7 @@ export default function HomePage() {
   const jobInteractionRef = useRef(false);
   const [desk, setDesk] = useState<Desk>("front");
   const [edition, setEdition] = useState<Article[]>([]);
+  const [dataVersion, setDataVersion] = useState(0);
   const [loadingEdition, setLoadingEdition] = useState(true);
   const [editionError, setEditionError] = useState("");
   const [categories, setCategories] = useState<{ name: string; count: number }[]>([]);
@@ -519,6 +520,8 @@ export default function HomePage() {
           const result = await api<DiscoveryResults>("/api/discovery/" + activeJobId + "/results");
           if (cancelled) return;
           setJobWarnings(result.warnings || []);
+          // Refresh the active newsroom desk after new records are persisted.
+          setDataVersion((version) => version + 1);
           setEdition((current) => {
             const byUrl = new Map<string, Article>();
             [...result.articles, ...current].forEach((article) => {
@@ -580,7 +583,7 @@ export default function HomePage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [desk, archiveOffset, archiveQuery, archiveSection, archiveSource, archiveSort, dateFrom, dateTo]);
+  }, [desk, archiveOffset, archiveQuery, archiveSection, archiveSource, archiveSort, dateFrom, dateTo, dataVersion]);
 
   useEffect(() => {
     if (desk !== "coverage") return;
@@ -589,7 +592,7 @@ export default function HomePage() {
       .then((result) => { if (!cancelled) setCoverage(result); })
       .catch((error) => { if (!cancelled) setToast(error.message || "Coverage report unavailable."); });
     return () => { cancelled = true; };
-  }, [desk]);
+  }, [desk, dataVersion]);
 
   useEffect(() => {
     if (desk !== "journalists") return;
@@ -600,7 +603,7 @@ export default function HomePage() {
         .catch((error) => { if (!cancelled) setToast(error.message || "Journalist directory unavailable."); });
     }, 180);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [desk, journalistQuery]);
+  }, [desk, journalistQuery, dataVersion]);
 
   async function startInvestigation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
