@@ -26,7 +26,7 @@ class FakeResponse:
 class SourceResolverTests(unittest.TestCase):
     def test_direct_url_returns_without_network_and_reports_progress(self):
         progress = []
-        with patch("backend.source_resolver.safe_get") as fetch:
+        with patch("backend.source_resolver.safe_get", create=True) as fetch:
             result = resolve_outlet(
                 "https://news.example/world",
                 progress_callback=progress.append,
@@ -42,7 +42,7 @@ class SourceResolverTests(unittest.TestCase):
                 raise requests.Timeout("search timed out")
             return FakeResponse(status_code=404, url=url)
 
-        with patch("backend.source_resolver.safe_get", side_effect=fail_search) as fetch:
+        with patch("backend.source_resolver.safe_get", side_effect=fail_search, create=True) as fetch:
             result = resolve_outlet(
                 "The Example Daily",
                 progress_callback=progress.append,
@@ -62,6 +62,7 @@ class SourceResolverTests(unittest.TestCase):
         with patch(
             "backend.source_resolver.safe_get",
             return_value=FakeResponse(text=html, url="https://duckduckgo.com/html/"),
+            create=True,
         ) as fetch:
             result = resolve_outlet(
                 "Example News",
