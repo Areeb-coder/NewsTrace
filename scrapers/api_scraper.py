@@ -1,104 +1,163 @@
 """
-API-First Scraper - Check backend APIs before HTML parsing (10x faster!)
+API-first article discovery.
+
+All network calls have connect/read timeouts and report progress so the
+Streamlit interface does not appear frozen while endpoints are probed.
 """
 
+import math
 import requests
-import json
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 
 
 def find_api_endpoints(website_url):
-    """Detect common news API patterns (≤15 lines)"""
+    """Return common JSON API endpoints for the publication."""
     domain = urlparse(website_url).netloc
-    base = website_url.rstrip('/')
-    
-    # Common API patterns for news sites
-    api_patterns = [
+    base = website_url.rstrip("/")
+    return [
         f"{base}/api/articles",
         f"{base}/api/v1/content",
-        f"{base}/wp-json/wp/v2/posts",  # WordPress
-        f"{base}/graphql",  # GraphQL
+        f"{base}/wp-json/wp/v2/posts",
+        f"{base}/graphql",
         f"{base}/api/search",
         f"{base}/feed/json",
         f"https://api.{domain}/articles",
     ]
-    
-    return api_patterns
 
 
-def try_api_scraping(website_url, max_articles=500):
-    """Try API endpoints first, return JSON data if found (≤25 lines)"""
+def _notify(progress_callback, current, total, detail):
+    if progress_callback:
+        progress_callback("API discovery", current, total, detail)
+
+
+def try_api_scraping(website_url, max_articles=500, progress_callback=None):
+    """
+    Probe common API routes and return normalized article dictionaries.
+
+    Each probe has a short bounded timeout. If no endpoint yields usable
+    records, the caller can continue with the HTML crawler.
+    """
+    endpoints = find_api_endpoints(website_url)
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/json'
+        "User-Agent": "Mozilla/5.0 (compatible; NewsTrace/1.0)",
+        "Accept": "application/json",
     })
-    
-    # Try common API endpoints
-    for api_url in find_api_endpoints(website_url):
-        try:
-            # Test with pagination
-            params = {'page': 1, 'per_page': 100, 'limit': 100, 'size': 100}
-            resp = session.get(api_url, params=params, timeout=5)
-            
-            if resp.status_code == 200 and 'application/json' in resp.headers.get('Content-Type', ''):
-                data = resp.json()
-                
-                # Found API! Extract articles
-                articles = extract_articles_from_json(data)
-                if articles:
-                    print(f"✅ Found API: {api_url}")
-                    print(f"📦 Extracting via API (fast mode)...")
-                    
-                    # Paginate to get more
-                    all_articles = articles
-                    for page in range(2, min(max_articles // 100 + 1, 20)):
-                        params['page'] = page
-                        r = session.get(api_url, params=params, timeout=5)
-                        if r.status_code == 200:
-                            more = extract_articles_from_json(r.json())
-                            if not more:
-                                break
-                            all_articles.extend(more)
-                        else:
+
+    try:
+        for index, api_url in enumerate(endpoints, start=1):
+            _notify(
+                progress_callback,
+                index - 1,
+                len(endpoints),
+                f"Checking endpoint {index}/{len(endpoints)}",
+            )
+            params = {"page": 1, "per_page": 100, "limit": 100, "size": 100}
+
+            try:
+                response = session.get(api_url, params=params, timeout=(2.5, 3.5))
+                content_type = response.headers.get("Content-Type", "").lower()
+
+                if response.status_code != 200 or "json" not in content_type:
+                    continue
+
+                try:
+                    first_page = response.json()
+                except ValueError:
+                    continue
+
+                articles = extract_articles_from_json(first_page)
+                if not articles:
+                    continue
+
+                print(f"API discovery found a candidate endpoint: {api_url}")
+                all_articles = list(articles)
+                page_limit = min(10, max(1, math.ceil(max_articles / 100)))
+
+                for page_number in range(2, page_limit + 1):
+                    if len(all_articles) >= max_articles:
+                        break
+
+                    _notify(
+                        progress_callback,
+                        min(len(endpoints), index),
+                        len(endpoints),
+                        f"Fetching API page {page_number}/{page_limit}",
+                    )
+                    params["page"] = page_number
+                    try:
+                        page_response = session.get(
+                            api_url,
+                            params=params,
+                            timeout=(2.5, 3.5),
+                        )
+                        if page_response.status_code != 200:
                             break
-                    
-                    return all_articles[:max_articles]
-        except:
-            continue
-    
-    return None  # No API found, fall back to HTML
+                        more_articles = extract_articles_from_json(page_response.json())
+                    except (requests.RequestException, ValueError):
+                        break
+
+                    if not more_articles:
+                        break
+                    all_articles.extend(more_articles)
+
+                _notify(
+                    progress_callback,
+                    len(endpoints),
+                    len(endpoints),
+                    f"API returned {min(len(all_articles), max_articles)} article records",
+                )
+                return all_articles[:max_articles]
+
+            except requests.RequestException as exc:
+                print(f"API probe failed for {api_url}: {type(exc).__name__}: {exc}")
+                continue
+    finally:
+        session.close()
+
+    _notify(
+        progress_callback,
+        len(endpoints),
+        len(endpoints),
+        "No compatible JSON API found; switching to HTML discovery",
+    )
+    return None
 
 
 def extract_articles_from_json(data):
-    """Extract article data from JSON response (≤20 lines)"""
+    """Extract article-like records from common JSON response shapes."""
     articles = []
-    
-    # Handle different JSON structures
     items = []
+
     if isinstance(data, list):
         items = data
     elif isinstance(data, dict):
-        # Try common keys
-        for key in ['articles', 'posts', 'data', 'items', 'results', 'content']:
-            if key in data:
-                items = data[key] if isinstance(data[key], list) else [data[key]]
-                break
-    
-    # Extract fields from each item
+        for key in ("articles", "posts", "data", "items", "results", "content"):
+            if key not in data:
+                continue
+            value = data[key]
+            if isinstance(value, list):
+                items = value
+            elif isinstance(value, dict):
+                nested = value.get("articles") or value.get("items") or value.get("posts")
+                items = nested if isinstance(nested, list) else [value]
+            break
+
     for item in items[:100]:
         if not isinstance(item, dict):
             continue
-        
-        article = {
-            'title': item.get('title') or item.get('headline') or '',
-            'author': item.get('author') or item.get('byline') or 'Unknown',
-            'url': item.get('url') or item.get('link') or item.get('permalink') or '',
-            'date': item.get('date') or item.get('published') or item.get('created_at') or '',
-            'section': item.get('section') or item.get('category') or item.get('topic') or ''
-        }
-        
-        if article['title']:  # Only add if has title
-            articles.append(article)
-    
+
+        title = item.get("title") or item.get("headline") or ""
+        url = item.get("url") or item.get("link") or item.get("permalink") or ""
+        if not title or not url:
+            continue
+
+        articles.append({
+            "title": title,
+            "author": item.get("author") or item.get("byline") or "Unknown",
+            "url": url,
+            "date": item.get("date") or item.get("published") or item.get("created_at") or "",
+            "section": item.get("section") or item.get("category") or item.get("topic") or "",
+        })
+
     return articles
