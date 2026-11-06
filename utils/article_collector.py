@@ -160,10 +160,12 @@ async def collect_article_urls(
 
     max_articles = max(1, int(max_articles))
     started = time.monotonic()
+    parsed_start = urlparse(normalized_home)
+    site_origin = f"{parsed_start.scheme}://{parsed_start.netloc}"
 
     _notify(progress_callback, "API discovery", 0, 7, "Checking common publication API endpoints")
     api_data = try_api_scraping(
-        normalized_home,
+        site_origin,
         max_articles,
         progress_callback=progress_callback,
     )
@@ -173,8 +175,8 @@ async def collect_article_urls(
         seen = set()
         for item in api_data:
             raw_url = item.get("url") if isinstance(item, dict) else None
-            absolute = normalize_url(urljoin(normalized_home, raw_url)) if raw_url else None
-            if absolute and same_domain(absolute, normalized_home) and absolute not in seen:
+            absolute = normalize_url(urljoin(site_origin, raw_url)) if raw_url else None
+            if absolute and same_domain(absolute, site_origin) and absolute not in seen:
                 seen.add(absolute)
                 api_urls.append(absolute)
 
