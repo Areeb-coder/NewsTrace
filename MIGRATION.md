@@ -142,6 +142,16 @@ The existing Render newstrace service continues to use Dockerfile and the Stream
 
 The service defaults to one active investigation at a time on Render (NEWSTRACE_MAX_ACTIVE_JOBS=1). Change this only after reviewing the memory available for parallel Playwright browsers.
 
+### Optional integrations on the new service
+
+Render environment variables are scoped to each service. The new newstrace-web service does not automatically inherit secrets configured on the existing newstrace Streamlit service. To keep optional features enabled, copy the required values into the new service's Environment settings:
+
+- SUPABASE_URL
+- SUPABASE_KEY
+- SERP_API_KEY
+
+Do not commit the actual values. The root .env.example and frontend/.env.example show the non-secret local-development settings. In production, leave NEXT_PUBLIC_API_BASE_URL unset because the Next.js export and FastAPI API share the same origin.
+
 ## QA gates
 
 The GitHub Actions workflow now checks both implementations:
