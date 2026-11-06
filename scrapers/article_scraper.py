@@ -385,7 +385,7 @@ def validate_author(author, title):
     if not isinstance(author, str):
         return "Unknown"
 
-    author = re.sub(r"\\s+", " ", author).strip()
+    author = re.sub(r"\s+", " ", author).strip()
     if not author:
         return "Unknown"
 
