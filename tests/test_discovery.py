@@ -15,11 +15,69 @@ from scrapers.article_scraper import (
     extract_image,
 )
 from utils.article_collector import (
+    _get_next_page_hrefs,
     is_article_url,
     is_section_page,
     normalize_url,
     same_domain,
 )
+
+
+class PaginationLookupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_next_link_returns_empty_list_without_waiting(self):
+        class FakeLocator:
+            called = False
+
+            async def evaluate_all(self, expression):
+                self.called = True
+                self.asserted_expression = expression
+                return []
+
+        class FakePage:
+            def __init__(self):
+                self.fake_locator = FakeLocator()
+
+            def locator(self, selector):
+                self.selector = selector
+                return self.fake_locator
+
+        page = FakePage()
+        result = await _get_next_page_hrefs(page)
+        self.assertEqual(result, [])
+        self.assertTrue(page.fake_locator.called)
+        self.assertIn('a[rel="next"]', page.selector)
+
+    async def test_optional_pagination_error_does_not_abort_crawl(self):
+        class FakeLocator:
+            async def evaluate_all(self, expression):
+                raise RuntimeError("DOM was replaced during pagination inspection")
+
+        class FakePage:
+            def locator(self, selector):
+                return FakeLocator()
+
+        self.assertEqual(await _get_next_page_hrefs(FakePage()), [])
+
+    async def test_pagination_evaluate_all_uses_supported_signature(self):
+        class FakeLocator:
+            def __init__(self):
+                self.called = False
+
+            async def evaluate_all(self, expression):
+                self.called = True
+                return ["/world/page/2"]
+
+        class FakePage:
+            def __init__(self):
+                self.fake_locator = FakeLocator()
+
+            def locator(self, selector):
+                return self.fake_locator
+
+        page = FakePage()
+        result = await _get_next_page_hrefs(page)
+        self.assertEqual(result, ["/world/page/2"])
+        self.assertTrue(page.fake_locator.called)
 
 
 class ProgressCallbackContractTests(unittest.TestCase):
