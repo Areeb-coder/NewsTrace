@@ -365,10 +365,12 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
 
 def run_unified_pipeline(user_query, max_articles, enable_profiles, enable_google):
     """Resolve the source, run the async pipeline and surface actionable errors."""
+    st.session_state["_pipeline_error_displayed"] = False
     source_status = st.status("Resolving the news outlet…", expanded=False)
     try:
         url, outlet_label = resolve_outlet(user_query)
         if not url:
+            st.session_state["_pipeline_error_displayed"] = True
             source_status.update(
                 label="Could not resolve the publication",
                 state="error",
@@ -410,6 +412,7 @@ def run_unified_pipeline(user_query, max_articles, enable_profiles, enable_googl
             )
         )
     except Exception as exc:
+        st.session_state["_pipeline_error_displayed"] = True
         source_status.update(label="Investigation failed", state="error", expanded=True)
         st.error(f"**NewsTrace could not complete this investigation.** {exc}")
         st.caption(
@@ -963,7 +966,10 @@ if submitted:
             else:
                 st.caption("Investigation is available in this session. Configure Supabase to enable persistent storage.")
         else:
-            st.warning("No articles were found or parsed. Try a direct website URL, a different publication, or a smaller collection size.")
+            if not st.session_state.get("_pipeline_error_displayed", False):
+                st.warning(
+                    "No articles were returned. Try a direct section URL or a different publication."
+                )
 
 # Render results in focused workspaces rather than one very long page.
 if "df" in st.session_state and st.session_state["df"] is not None:
