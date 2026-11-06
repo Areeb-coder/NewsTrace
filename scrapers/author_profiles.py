@@ -7,6 +7,8 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import re
 
+from utils.url_safety import install_public_network_guard
+
 
 async def get_author_profile_page(author_name, website_url):
     """
@@ -30,7 +32,9 @@ async def get_author_profile_page(author_name, website_url):
     # Try each pattern
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        context = await browser.new_context()
+        await install_public_network_guard(context)
+        page = await context.new_page()
         
         for url in patterns:
             try:
