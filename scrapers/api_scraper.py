@@ -8,6 +8,8 @@ Streamlit interface does not appear frozen while endpoints are probed.
 import math
 import time
 import requests
+
+from utils.url_safety import safe_get
 from urllib.parse import urlparse
 
 
@@ -60,8 +62,9 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
             params = {"page": 1, "per_page": 100, "limit": 100, "size": 100}
 
             try:
-                response = session.get(
+                response = safe_get(
                     api_url,
+                    session=session,
                     params=params,
                     timeout=(min(1.2, remaining), min(1.8, remaining)),
                 )
@@ -95,8 +98,9 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
                     )
                     params["page"] = page_number
                     try:
-                        page_response = session.get(
+                        page_response = safe_get(
                             api_url,
+                            session=session,
                             params=params,
                             timeout=(1.2, 1.8),
                         )
