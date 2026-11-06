@@ -49,7 +49,8 @@ def _walk_jsonld(value):
 
 
 def _extract_jsonld_author(soup):
-    """Read Article/NewsArticle authors from direct nodes and @graph blocks."""
+    """Resolve Article author objects, including @graph and @id references."""
+    nodes = []
     for script in soup.find_all("script", type="application/ld+json"):
         raw = script.string or script.get_text()
         if not raw:
@@ -58,17 +59,28 @@ def _extract_jsonld_author(soup):
             payload = json.loads(raw)
         except (TypeError, ValueError):
             continue
+        nodes.extend(_walk_jsonld(payload))
 
-        for node in _walk_jsonld(payload):
-            author_value = node.get("author") or node.get("creator")
-            if not author_value:
-                continue
+    by_id = {
+        node.get("@id"): node
+        for node in nodes
+        if isinstance(node, dict) and node.get("@id")
+    }
 
-            candidates = author_value if isinstance(author_value, list) else [author_value]
-            for candidate in candidates:
-                name = _candidate_author_name(candidate)
-                if name:
-                    return name
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        author_value = node.get("author") or node.get("creator")
+        if not author_value:
+            continue
+
+        candidates = author_value if isinstance(author_value, list) else [author_value]
+        for candidate in candidates:
+            if isinstance(candidate, dict) and candidate.get("@id"):
+                candidate = by_id.get(candidate["@id"], candidate)
+            name = _candidate_author_name(candidate)
+            if name:
+                return name
     return None
 
 
