@@ -481,7 +481,15 @@ export default function HomePage() {
       if (event.key === "/" && !isEditing) {
         event.preventDefault();
         setDesk("archive");
-        window.setTimeout(() => archiveSearchRef.current?.focus(), 0);
+        // When the Archive desk is already mounted, focus synchronously. If
+        // navigation is needed, wait for React to commit the Archive input.
+        if (archiveSearchRef.current) {
+          archiveSearchRef.current.focus();
+        } else {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => archiveSearchRef.current?.focus());
+          });
+        }
       }
       if (event.key === "Escape") {
         if (selectedArticle) setSelectedArticle(null);
