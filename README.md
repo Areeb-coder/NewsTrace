@@ -477,12 +477,3 @@ The new service builds the static Next.js export and serves it from FastAPI alon
 **Persistence note:** the first-phase job scheduler and SQLite job store are process-local/single-service. Render's free container filesystem is ephemeral, so SQLite job/result snapshots are not guaranteed to survive container replacement or redeploy. Use a persistent disk or a shared durable database/queue before treating the new job store as a permanent archive. Optional Supabase article and journalist persistence remains supported.
 
 For local setup, API routes, job statuses, persistence constraints and QA checks, see [MIGRATION.md](MIGRATION.md) and [DEPLOYMENT.md](DEPLOYMENT.md).
-
-## 🚀 Cloud Deployment
-
-NewsTrace is a Streamlit application that uses Playwright/Chromium for scraping. For a production deployment, use a Docker-capable host such as **Render** rather than a static-site host.
-
-- The repository includes a `Dockerfile` and `render.yaml` for Render Blueprint deployment.
-- Follow [DEPLOYMENT.md](DEPLOYMENT.md) for setup instructions and optional environment variables.
-- Vercel and GitHub Pages are not drop-in hosts for this persistent Streamlit + Chromium application. GitHub is the source-code host; it does not run the app by itself.
-
