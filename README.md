@@ -2,9 +2,9 @@
 
 ### Journalist Intelligence & News Coverage Analysis Platform
 
-NewsTrace is an intelligent web-scraping platform designed to discover journalists, analyze their coverage patterns, and extract structured information from news websites.
+NewsTrace is a source-led news-intelligence platform for discovering articles, identifying journalists, analyzing coverage patterns, and building a searchable archive of reporting.
 
-Instead of manually searching through hundreds of articles and author pages, NewsTrace automates the process of discovering articles, identifying journalists, extracting author information, and enriching journalist profiles with additional publicly available data.
+The application now has a **Next.js + React + TypeScript frontend** served by a **FastAPI backend**, while preserving its existing Python discovery, Playwright extraction, author analysis, optional SerpAPI enrichment, and Supabase integrations. The original Streamlit interface remains available during the migration.
 
 ---
 
@@ -87,72 +87,51 @@ Supported formats include:
 
 # 🏗️ Architecture
 
-```text
-                    ┌─────────────────────┐
-                    │   NewsTrace UI      │
-                    │     Streamlit       │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   Website Resolver  │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │   Article Discovery  │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Parallel Web Scraper │
-                    │      Playwright      │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────┴──────────┐
-                    ▼                     ▼
-             ┌──────────────┐     ┌───────────────┐
-             │ Author       │     │ Article       │
-             │ Extraction   │     │ Metadata      │
-             └──────┬───────┘     └───────┬───────┘
-                    │                      │
-                    └──────────┬───────────┘
-                               ▼
-                    ┌─────────────────────┐
-                    │  Google Enrichment  │
-                    │      (Optional)     │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Structured Journalist│
-                    │       Dataset       │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────┴──────────┐
-                    ▼                     ▼
-             ┌──────────────┐     ┌───────────────┐
-             │ Data Table   │     │ Author-Topic  │
-             │              │     │ Network       │
-             └──────────────┘     └───────────────┘
-```
+The new web application separates the editorial frontend from the Python investigation engine:
+
+~~~text
+                 Next.js / React / TypeScript
+                           |
+                  HTTP same-origin API
+                           |
+                           v
+                       FastAPI
+                           |
+                  SQLite discovery jobs
+                           |
+        +------------------+------------------+
+        v                  v                  v
+  Article discovery   Playwright extract   Enrichment
+        |                  |                  |
+        +------------------+------------------+
+                           |
+                   Article records
+                           |
+                Search / Archive / Coverage
+                           |
+                 Optional Supabase storage
+~~~
+
+The Streamlit dashboard and its original entry points are retained as a legacy interface while the new application is verified. See [MIGRATION.md](MIGRATION.md) for the repository audit, job lifecycle, persistence boundaries and setup details.
 
 ---
-
 # 🛠️ Tech Stack
 
 | Technology | Purpose |
 |---|---|
-| **Python** | Core application |
-| **Streamlit** | Interactive dashboard |
-| **Playwright** | Browser automation & web scraping |
-| **BeautifulSoup** | HTML parsing |
-| **Pandas** | Data processing & analysis |
-| **Google / SERP API** | Optional journalist enrichment |
-| **Supabase** | Optional backend data storage |
+| **Next.js / React / TypeScript** | New editorial web frontend |
+| **Tailwind CSS v4** | Frontend styling system |
+| **Motion for React** | Restrained UI transitions |
+| **FastAPI / Uvicorn** | HTTP API and discovery-job lifecycle |
+| **Python** | Existing article discovery and enrichment logic |
+| **Playwright / Chromium** | Browser-based source and article extraction |
+| **BeautifulSoup / lxml** | HTML parsing |
+| **Pandas** | Article and journalist data processing |
+| **SQLite** | Local job-status and result snapshots |
+| **Supabase** | Optional persistent article and journalist storage |
+| **SerpAPI** | Optional public-profile enrichment |
 
 ---
-
 # 🚀 Installation
 
 ### 1. Clone the repository
@@ -214,20 +193,54 @@ SERP_API_KEY=your_serpapi_key
 
 # ▶️ Running NewsTrace
 
-Start the Streamlit dashboard:
+## New Next.js + FastAPI application
 
-```bash
+Install the Python dependencies and browser runtime from the repository root:
+
+~~~bash
+python -m venv .venv
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# macOS/Linux:
+# source .venv/bin/activate
+python -m pip install -r requirements.txt
+playwright install chromium
+~~~
+
+Start the API:
+
+~~~bash
+uvicorn backend.main:app --reload --port 8000
+~~~
+
+In a second terminal, start the frontend:
+
+~~~bash
+cd frontend
+npm install
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 npm run dev
+~~~
+
+Open **http://localhost:3000**. The API is available at **http://localhost:8000** and the health endpoint is **/api/health**.
+
+For PowerShell, set the local API base URL before starting Next.js:
+
+~~~powershell
+$env:NEXT_PUBLIC_API_BASE_URL = "http://localhost:8000"
+npm run dev
+~~~
+
+## Legacy Streamlit application
+
+The original application remains available during the migration:
+
+~~~bash
 streamlit run app.py
-```
+~~~
 
-Then open:
-
-```text
-http://localhost:8501
-```
+It continues to use the original Streamlit UI and Playwright scraping stack. The new web service does not replace it automatically.
 
 ---
-
 # 🔎 How It Works
 
 ### 1. Enter a News Outlet
@@ -433,20 +446,37 @@ If you intend to allow others to legally reuse, modify, or distribute the projec
 
 ## 🗞️ Interface & Experience
 
-NewsTrace uses a **vintage newspaper / digital editorial** design system rather than a generic SaaS dashboard:
+The new frontend presents NewsTrace as a **vintage digital newspaper** rather than a generic SaaS dashboard:
 
-- Newspaper masthead with edition date, issue marker and editorial navigation.
-- Warm parchment, charcoal ink, muted sepia and restrained oxblood accents.
-- Cormorant Garamond display typography, Source Sans 3 reading text and IBM Plex Mono metadata.
-- Asymmetric lead-story layout, ruled story columns, thin dividers and subtle paper grain.
-- Publisher lead images extracted from Open Graph, Twitter image metadata or article figures, where available.
-- Grayscale/sepia image treatment, restrained masthead motion, headline hover details and reduced-motion support.
-- A source-linked front page plus dedicated **Coverage & analysis**, **Journalist directory** and **Search the archive** views.
-- Responsive newspaper columns that reflow into a readable single-column edition on mobile.
+- Issue/date masthead, publication navigation and asymmetric editorial story grid.
+- Warm paper, charcoal ink, restrained oxblood accents, vintage serif headlines and compact monospaced metadata.
+- Source-linked article records with publisher images when exposed by article metadata.
+- Dedicated **Front page**, **Archive**, **Coverage desk** and **Byline directory** views.
+- Article search, section/source/date filters, sorting and CSV/JSON exports.
+- A long-running discovery interface backed by real server job IDs, stage events, processed counts, warnings and results.
+- Responsive vertical newspaper flow on smaller screens, keyboard-visible focus and reduced-motion support.
 
-The design borrows principles from The Economist, The Guardian's interactive journalism, The Pudding's visual essays, the Library of Congress newspaper guides, The Public Domain Review and Awwwards editorial/typography collections. These references informed hierarchy and interaction; NewsTrace retains its own brand and workflow.
+## 🔄 Migration & Discovery Jobs
 
-See [DESIGN.md](DESIGN.md) for the design rationale and references.
+The API accepts a discovery request and returns a job ID immediately. The frontend polls the job status and displays the server's actual stage and count information. Discovery, extraction, optional author enrichment and optional Supabase writes run outside the page request.
+
+A confirmed blocking issue in the old discovery path was fixed: the synchronous API-first requests probe now runs in a worker thread rather than blocking the asyncio event loop.
+
+See [MIGRATION.md](MIGRATION.md) for the full audit and architecture.
+
+
+## 🚀 Cloud Deployment
+
+The Render Blueprint now defines two separate web services:
+
+- **newstrace** — the original Streamlit application using Dockerfile and the /_stcore/health check.
+- **newstrace-web** — the new Next.js + FastAPI application using Dockerfile.web and the /api/health check.
+
+The new service builds the static Next.js export and serves it from FastAPI alongside the API endpoints. The legacy service remains configured and available during migration; the new service does not overwrite it.
+
+**Persistence note:** the first-phase job scheduler and SQLite job store are process-local/single-service. Render's free container filesystem is ephemeral, so SQLite job/result snapshots are not guaranteed to survive container replacement or redeploy. Use a persistent disk or a shared durable database/queue before treating the new job store as a permanent archive. Optional Supabase article and journalist persistence remains supported.
+
+For local setup, API routes, job statuses, persistence constraints and QA checks, see [MIGRATION.md](MIGRATION.md) and [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## 🚀 Cloud Deployment
 
