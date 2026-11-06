@@ -93,6 +93,7 @@ jobs:
         run: |
           python - <<'PY'
           import asyncio
+          import json
           from playwright.async_api import async_playwright
 
           async def main():
@@ -132,8 +133,61 @@ jobs:
                   if errors:
                       raise SystemExit("Browser runtime errors: " + " | ".join(errors[:4]))
 
+                  # Simulate a tab refresh while a server-side job is still
+                  # running. The new page must reconnect using persisted /api/jobs.
+                  resume_page = await browser.new_page(viewport={"width": 1280, "height": 900})
+                  resume_job = {
+                      "job_id": "resume-e2e-job",
+                      "outlet": "Example News",
+                      "source_url": "https://example.com",
+                      "status": "running",
+                      "stage": "Article extraction",
+                      "detail": "Processed 4/12 · 4 article records retained",
+                      "current": 4,
+                      "total": 12,
+                      "events": [{
+                          "stage": "Article extraction",
+                          "detail": "Processed 4/12 · 4 article records retained",
+                          "current": 4,
+                          "total": 12,
+                          "at": "2026-11-06T00:00:00+00:00",
+                      }],
+                      "parameters": {"outlet": "Example News", "max_articles": 12},
+                      "stats": {},
+                      "warnings": [],
+                      "error": None,
+                      "created_at": "2026-11-06T00:00:00+00:00",
+                      "updated_at": "2026-11-06T00:00:01+00:00",
+                      "finished_at": None,
+                  }
+
+                  async def recent_jobs(route):
+                      await route.fulfill(
+                          status=200,
+                          content_type="application/json",
+                          body=json.dumps({"jobs": [resume_job], "count": 1}),
+                      )
+
+                  async def running_status(route):
+                      await route.fulfill(
+                          status=200,
+                          content_type="application/json",
+                          body=json.dumps(resume_job),
+                      )
+
+                  await resume_page.route("**/api/jobs*", recent_jobs)
+                  await resume_page.route("**/api/discovery/resume-e2e-job", running_status)
+                  await resume_page.goto("http://127.0.0.1:8000", wait_until="networkidle", timeout=30000)
+                  await resume_page.get_by_text(
+                      "Reconnected to the investigation already running on NewsTrace."
+                  ).wait_for()
+                  await resume_page.locator(".job-stage").filter(
+                      has_text="Article extraction"
+                  ).wait_for()
+                  await resume_page.close()
+
                   await browser.close()
-                  print("Browser navigation, archive shortcut, discovery panel and 6 viewport checks passed.")
+                  print("Browser navigation, archive shortcut, discovery panel, refresh recovery and 6 viewport checks passed.")
 
           asyncio.run(main())
           PY
