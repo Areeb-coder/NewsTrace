@@ -1,175 +1,102 @@
-# NewsTrace — Next.js / FastAPI Migration
+# NewsTrace architecture and migration record
 
-## What changed
+## Canonical production architecture
 
-NewsTrace now has a second, production-oriented web application alongside the legacy Streamlit app.
+The migration is complete in the repository architecture:
 
-- frontend/ is a Next.js App Router application written in React and TypeScript.
-- Tailwind CSS v4 provides the utility layer; the editorial layout is implemented with reusable CSS tokens and components.
-- Motion for React handles the restrained masthead, story and modal transitions.
-- backend/ is a FastAPI application which serves the API and the static Next.js export from one origin.
-- Existing Python article discovery, Playwright extraction, author extraction, author-profile enrichment, SerpAPI enrichment and optional Supabase functions remain the business-logic layer.
-- app.py and dashboard.py are retained as the legacy Streamlit interface.
+- `frontend/` is the canonical Next.js App Router application (React + TypeScript).
+- `backend/main.py` is the FastAPI application and serves the static Next.js export from the same origin.
+- `backend/investigation.py` orchestrates the existing Python discovery, Playwright extraction and optional journalist enrichment modules.
+- `backend/jobs.py` stores job states, progress events, warnings, statistics and article-result snapshots. Production uses Supabase Postgres; local development uses SQLite.
+- The legacy Streamlit UI and its production startup path are removed.
 
-The new service is configured as a separate Render web service (newstrace-web). The original newstrace service remains in render.yaml and continues to use the original Dockerfile.
+## Frontend-to-backend contract
 
-## Repository audit findings
+The actual frontend has four desks:
 
-### Existing execution path
+| Frontend feature | Request | Backend/data flow |
+|---|---|---|
+| Front page | `GET /api/articles?limit=60&sort=latest` | Read latest stored article records |
+| Archive search | `GET /api/articles` | Filter by query, section, source, date range and sort; return offset/limit |
+| Section filters | `GET /api/categories` | Aggregate section counts |
+| Publication filters | `GET /api/sources` | Aggregate outlet counts |
+| Coverage desk | `GET /api/coverage` | Aggregate article, author, section and outlet metrics |
+| Byline directory | `GET /api/journalists?q=...` | Aggregate identified authors and public profile fields |
+| Start investigation | `POST /api/discovery/start` | Validate input, create persistent job, start bounded background task; return job ID |
+| Live job view | `GET /api/discovery/{job_id}` | Return current state, stage/count, event trail and errors |
+| Results | `GET /api/discovery/{job_id}/results` | Return persisted article records and warnings |
+| Refresh recovery | `GET /api/discovery/{job_id}` | Browser reconnects to its own UUID stored in local storage |
 
-The legacy application resolved the source, called unified_scraping_pipeline, then used the Streamlit session state to render its DataFrame and analytics.
+There is no separate AI summary, sentiment, related-story or timeline endpoint in the current frontend. The current product shows source-linked metadata, available descriptions/summaries and journalist/coverage aggregation; it does not invent AI analysis when no such result exists.
 
-The discovery path was:
+## Data flow
 
-1. Source resolution.
-2. API-first article discovery.
-3. Bounded Playwright listing crawl when no compatible API was found.
-4. Parallel Playwright article extraction using reusable pages.
-5. Optional public author-profile extraction.
-6. Optional SerpAPI enrichment.
-7. Optional Supabase writes.
-8. Streamlit rendering and session-state updates.
+~~~text
+Visitor
+  |
+  v
+Next.js editorial UI
+  |
+  +-- GET article/archive/facet APIs
+  |
+  +-- POST /api/discovery/start
+          |
+          v
+      FastAPI creates job row
+          |
+          v
+      Background investigation task
+          |
+          +-- Resolve publication
+          +-- API-first article discovery
+          +-- Bounded HTML section crawl
+          +-- URL de-duplication
+          +-- Concurrent Playwright extraction
+          +-- Metadata and byline parsing
+          +-- Optional author profile enrichment
+          +-- Optional SerpAPI enrichment
+          |
+          v
+      Persist job, events, stats and article snapshots
+          |
+          v
+      Next.js polls job status and displays results
+~~~
 
-### Confirmed event-loop blocking issue
+Each source/page failure is isolated where possible. Valid article records are retained when a byline is unavailable; failed fetches are reported as failures. Optional search enrichment is not required for the archive to work.
 
-collect_article_urls is asynchronous, but it called try_api_scraping directly. That API-first function uses synchronous requests calls to probe publisher endpoints (bounded by its own deadline and request timeouts). Because those requests ran inside the async discovery coroutine, they blocked the event loop while waiting for endpoint responses. The same loop is responsible for driving asynchronous Playwright work and delivering progress to the UI. This could make the app appear stuck during the API discovery phase.
+## Background job model
 
-The collector now runs the bounded API probe through asyncio.to_thread. Its callback is marshalled back onto the event loop with call_soon_threadsafe, preserving the existing callback contract while allowing asynchronous discovery and extraction to continue.
+The API returns `202 Accepted` with a UUID `job_id`; it does not wait for scraping inside the start request. The frontend polls status and displays actual backend stage labels, counts, details and warnings.
 
-### What was and was not established
+Statuses: `queued`, `running`, `complete`, `partial`, `failed`, `interrupted`.
 
-The audit confirmed the blocking API-probe path above. It did not establish that all reports of a stuck screen came from that single cause: a publisher can still reject browser requests, expose no article links, time out or return non-article interstitial pages. Those cases are retained as extraction failures with diagnostics rather than represented as successful progress.
+The initial implementation uses one FastAPI process, an in-process async task and a semaphore. This avoids introducing Redis/Celery/Kafka before the application needs distributed execution. It is intentionally a single-instance architecture: do not add Uvicorn workers or scale to multiple API instances while the scheduler is process-local.
 
-## New request / job lifecycle
+Job state and final article snapshots are stored durably in Supabase for production. An active task cannot survive a process restart; startup marks running jobs interrupted while retaining the last observed counts and events. The user can retry. If jobs must resume automatically after restarts or scale across several instances, introduce a durable queue and shared workers.
 
-The Next.js client never waits for article discovery inside the request that starts it.
+## Storage
 
-    Next.js UI
-       | POST /api/discovery/start
-       v
-    FastAPI creates SQLite job row
-       | returns job_id immediately
-       v
-    in-process async job task
-       +-- source resolution (off the event loop)
-       +-- API-first / HTML article discovery
-       +-- parallel Playwright extraction
-       +-- optional author profile enrichment
-       +-- optional SerpAPI enrichment
-       +-- optional Supabase persistence
-       +-- store article records + stats
-       ^
-       | GET /api/discovery/{job_id}
-       | GET /api/discovery/{job_id}/results
-    Next.js polls and displays actual job events and counts
+- **Local development:** SQLite at `data/newstrace.sqlite3`.
+- **Production:** `public.newstrace_discovery_jobs` (Supabase Postgres JSONB snapshots).
+- **Supplementary persistence:** existing `articles` and `journalists` tables remain optional.
 
-### Job status
+The production service uses `SUPABASE_SERVICE_ROLE_KEY` only on the backend. The migration enables RLS and defines no anonymous/authenticated policies for the internal jobs table. The durable store is required by the Render Blueprint; missing credentials/schema prevent startup instead of silently losing data to an ephemeral filesystem.
 
-Statuses are queued, running, complete, partial, failed and interrupted.
+The archive reads a bounded recent window of completed jobs. For substantially larger datasets, the next data-model step is a normalized article table with indexed server-side filtering and pagination rather than loading recent JSON snapshots into Python.
 
-Each progress event stores the stage name, detail string, current count, total count and timestamp. The UI displays those recorded values. It does not synthesize a progress percentage across unrelated phases.
+## Security and operational boundaries
 
-If the API process restarts while a job is queued or running, startup recovery changes it to interrupted with a retry instruction. It is not left in a permanent running state.
-
-## API endpoints
-
-| Endpoint | Purpose |
-|---|---|
-| GET /api/health | Health check and active task count |
-| POST /api/discovery/start | Start a background investigation and return a job ID |
-| GET /api/discovery/{job_id} | Retrieve live status and event history |
-| GET /api/discovery/{job_id}/results | Retrieve completed or partial article results |
-| GET /api/jobs | Recent investigation list |
-| GET /api/articles | Search/filter/sort the collected archive |
-| GET /api/search | Alias for article search |
-| GET /api/categories | Coverage section counts |
-| GET /api/sources | Publication/source counts |
-| GET /api/journalists | Aggregated journalist directory |
-| GET /api/coverage | Article, journalist, source and section metrics |
-
-The API validates the outlet input and bounds the requested article count (10–500). Errors returned to the UI are plain-language messages; detailed exceptions remain in the server logs.
-
-### Public-source safety and request limits
-
-The discovery-start endpoint is limited by client address (5 starts per 10 minutes by default; configurable with NEWSTRACE_DISCOVERY_RATE_LIMIT and NEWSTRACE_DISCOVERY_RATE_WINDOW). Direct source URLs reject non-HTTP(S) schemes, embedded credentials, nonstandard ports, localhost/internal hostnames and obvious non-public IP ranges. The frontend only renders publisher/article links with http/https schemes.
-
-These checks are a first layer, not a complete outbound-network security boundary: hostname DNS can still resolve to a private address or change after validation. Before exposing the crawler to untrusted high-volume use, enforce outbound egress restrictions at the container/network layer and move rate limits into a shared gateway/store for multi-instance deployments.
-
-## Data and persistence
-
-backend/jobs.py stores job status, progress events, statistics, warnings and JSON article records in SQLite. The default path is data/newstrace.sqlite3. Set NEWSTRACE_DB_PATH to choose another path.
-
-The new Render service uses a single Uvicorn worker because the first-phase scheduler and semaphore are process-local. Do not increase the worker count unless the scheduler and job store are moved to a shared service.
-
-**Important deployment boundary:** the free Render service uses an ephemeral container filesystem. SQLite job results survive ordinary requests and process activity in the running container, but are not a durable archive across a container replacement/redeploy on an ephemeral filesystem. For durable production history, mount a persistent disk and point NEWSTRACE_DB_PATH to it, or move the job/result store to a shared database/queue. The optional Supabase article/journalist tables continue to be used when configured, but the job-status store is SQLite in this migration phase.
-
-A single-process in-process task is appropriate for the first migration and keeps the code/deployment footprint small. A future multi-instance deployment should replace it with a durable queue (for example, Redis-backed workers) and a shared job store.
-
-## Local development
-
-### API
-
-Commands:
-
-    python -m venv .venv
-    # Windows PowerShell:
-    .venv\Scripts\Activate.ps1
-    # macOS/Linux:
-    # source .venv/bin/activate
-
-    python -m pip install -r requirements.txt
-    playwright install chromium
-    uvicorn backend.main:app --reload --port 8000
-
-### Next.js frontend
-
-Commands:
-
-    cd frontend
-    npm install
-    NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 npm run dev
-
-Open http://localhost:3000. The API remains at http://localhost:8000.
-
-### Legacy Streamlit interface
-
-The previous app remains available during the migration:
-
-    streamlit run app.py
+- Discovery accepts only HTTP(S) URLs, rejects embedded URL credentials, nonstandard ports and obvious local/private address forms.
+- Start requests are rate-limited per client address.
+- Browser article links are sanitized to HTTP(S) before rendering.
+- Supabase service-role credentials remain server-only.
+- The current UI has no account/authentication flow; do not expose private source credentials or sensitive personal data in scraped records.
+- URL validation is a defensive first layer, not a complete network-level SSRF boundary. For higher-risk public use, enforce outbound egress controls at the hosting/network layer and validate redirect destinations.
+- Respect publisher terms, rate limits and access controls. NewsTrace does not bypass paywalls or CAPTCHA challenges.
 
 ## Deployment
 
-The existing Render newstrace service continues to use Dockerfile and the Streamlit health route. The separate newstrace-web service uses Dockerfile.web:
+The root `render.yaml` defines one Docker web service using `Dockerfile.web`. Node builds the Next.js static export; a Playwright Python image runs FastAPI and serves the export. The production service uses one Uvicorn worker and a durable Supabase store.
 
-1. Node 26 builds the static Next.js export into frontend/out.
-2. The Playwright Python image installs the original Python requirements plus FastAPI/Uvicorn.
-3. FastAPI serves /api/* and the exported frontend from the same service.
-4. Render checks /api/health.
-
-The service defaults to one active investigation at a time on Render (NEWSTRACE_MAX_ACTIVE_JOBS=1). Change this only after reviewing the memory available for parallel Playwright browsers.
-
-### Optional integrations on the new service
-
-Render environment variables are scoped to each service. The new newstrace-web service does not automatically inherit secrets configured on the existing newstrace Streamlit service. To keep optional features enabled, copy the required values into the new service's Environment settings:
-
-- SUPABASE_URL
-- SUPABASE_KEY
-- SERP_API_KEY
-
-Do not commit the actual values. The root .env.example and frontend/.env.example show the non-secret local-development settings. In production, leave NEXT_PUBLIC_API_BASE_URL unset because the Next.js export and FastAPI API share the same origin.
-
-## QA gates
-
-The GitHub Actions workflow now checks both implementations:
-
-- Install the frontend dependencies.
-- Run TypeScript type checking.
-- Build the static Next.js export.
-- Confirm frontend/out/index.html exists.
-- Install Python dependencies and Chromium.
-- Compile all Python sources.
-- Run article discovery, parser, image and job-store regression tests.
-- Start FastAPI and check the health endpoint, homepage and archive endpoints.
-- Start the legacy Streamlit app and check its original health endpoint.
-
-The CI smoke test validates service startup and route responses. It does not prove that every publisher permits scraping; source-specific discovery still needs real publisher checks.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the exact Render and Supabase steps, and [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for database configuration.
