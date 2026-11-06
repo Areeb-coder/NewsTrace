@@ -29,13 +29,13 @@ const NAV: { id: Desk; label: string }[] = [
   { id: "journalists", label: "Bylines" },
 ];
 
-function todayEdition() {
+function todayEdition(date: Date) {
   return new Intl.DateTimeFormat("en-IN", {
     weekday: "long",
     day: "2-digit",
     month: "long",
     year: "numeric",
-  }).format(new Date()).toUpperCase();
+  }).format(date).toUpperCase();
 }
 
 function ArticlePhoto({
@@ -364,6 +364,9 @@ function DownloadButton({
 
 export default function HomePage() {
   const reducedMotion = useReducedMotion();
+  const [editionDate, setEditionDate] = useState("");
+  const [editionIssue, setEditionIssue] = useState("");
+  const jobInteractionRef = useRef(false);
   const [desk, setDesk] = useState<Desk>("front");
   const [edition, setEdition] = useState<Article[]>([]);
   const [loadingEdition, setLoadingEdition] = useState(true);
@@ -427,9 +430,41 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    // This is a static Next.js export. Set the date after hydration so the
+    // publication date cannot become stale or differ between build and client.
+    const now = new Date();
+    setEditionDate(todayEdition(now));
+    setEditionIssue(String(now.getDate()).padStart(3, "0"));
+  }, []);
+
+  useEffect(() => {
     void refreshEdition();
     void refreshFacets();
   }, [refreshEdition, refreshFacets]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<{ jobs: DiscoveryJob[] }>("/api/jobs?limit=20")
+      .then(({ jobs }) => {
+        if (cancelled || jobInteractionRef.current) return;
+        const resumable = (jobs || []).find(
+          (job) => job.status === "queued" || job.status === "running",
+        );
+        if (!resumable) return;
+
+        // A job continues on the API process if the visitor refreshes this
+        // tab. Reattach to its persisted job ID rather than losing its status.
+        jobInteractionRef.current = true;
+        setActiveJob(resumable);
+        setActiveJobId(resumable.job_id);
+        setShowDiscovery(false);
+        setToast("Reconnected to the investigation already running on NewsTrace.");
+      })
+      .catch(() => {
+        // The page and archive remain usable when job history is unavailable.
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -562,6 +597,7 @@ export default function HomePage() {
   async function startInvestigation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!outlet.trim() || submitting || activeJobId) return;
+    jobInteractionRef.current = true;
     setSubmitting(true);
     setJobWarnings([]);
     try {
@@ -593,9 +629,9 @@ export default function HomePage() {
     <main className="paper-shell">
       <header>
         <div className="issue-line">
-          <span>VOL. 01 <strong> / </strong> ISSUE {new Date().getDate().toString().padStart(3, "0")}</span>
+          <span>VOL. 01 <strong> / </strong> ISSUE {editionIssue || "---"}</span>
           <span>THE DAILY INTELLIGENCE CHRONICLE</span>
-          <span>{todayEdition()} <strong> · </strong> INDIA EDITION</span>
+          <span>{editionDate || "TODAY'S EDITION"} <strong> · </strong> INDIA EDITION</span>
         </div>
         <motion.div
           className="masthead"
@@ -664,7 +700,7 @@ export default function HomePage() {
           <strong>{new Set(latestArticles.map((item) => item.author).filter((name) => name && name !== "Unknown")).size}</strong>
           IDENTIFIED BYLINES
           <br /><br />
-          <span className="table-meta">ISSUED {todayEdition()}</span>
+          <span className="table-meta">ISSUED {editionDate || "TODAY'S EDITION"}</span>
         </aside>
       </motion.section>
 
@@ -961,7 +997,7 @@ export default function HomePage() {
       <footer className="site-footer">
         <span>NEWSTRACE / THE DIGITAL NEWS CHRONICLE</span>
         <span>RESEARCH WITH CONTEXT / DATA WITH PROVENANCE</span>
-        <span>INDIA EDITION / {todayEdition()}</span>
+        <span>INDIA EDITION / {editionDate || "TODAY'S EDITION"}</span>
       </footer>
 
       <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(null)} />
