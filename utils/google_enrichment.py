@@ -5,7 +5,7 @@ Google Search Enrichment using SerpAPI
 Searches for journalist profiles and extracts social media, workplace, bio
 """
 
-import requests
+from utils.url_safety import safe_get
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urlparse
@@ -42,7 +42,7 @@ def search_journalist_profile(author_name, news_outlet=None):
     }
     
     try:
-        response = requests.get("https://serpapi.com/search", params=params, timeout=10)
+        response = safe_get("https://serpapi.com/search", params=params, timeout=10, max_redirects=2)
         data = response.json()
         
         # Extract information from search results
