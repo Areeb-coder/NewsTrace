@@ -32,3 +32,8 @@ Thumbs.db
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local NewsTrace API job/status database
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
