@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
-from utils.article_collector import collect_article_urls
+from utils.article_collector import collect_article_urls, normalize_url
 from scrapers.parallel_scraper import scrape_articles_parallel
 from scrapers.author_profiles import get_author_profile_page, scrape_author_details
 from utils.google_enrichment import SERPAPI_KEY, search_journalist_profile
@@ -42,13 +42,15 @@ def resolve_outlet(user_input: str):
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari"
     }
 
-    # If already a URL
+    # Accept full URLs and domain/path input without a scheme.
+    # Return the site origin for profile lookups; the caller preserves the
+    # full path separately as the discovery starting point.
     try:
-        if s.startswith("http://") or s.startswith("https://"):
-            p = urlparse(s)
-            if p.netloc:
-                base = f"{p.scheme}://{p.netloc}"
-                return base, p.netloc
+        candidate = s if s.startswith(("http://", "https://")) else f"https://{s}"
+        p = urlparse(candidate)
+        if p.netloc and "." in (p.hostname or "") and not any(ch.isspace() for ch in s):
+            base = f"{p.scheme}://{p.netloc}"
+            return base, p.netloc
     except Exception:
         pass
 
@@ -109,7 +111,7 @@ def resolve_outlet(user_input: str):
     return None, None
 
 
-async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profiles=False, enable_google=False):
+async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profiles=False, enable_google=False, discovery_url=None):
     """
     Run discovery, extraction and optional enrichment with visible progress.
     """
@@ -153,8 +155,9 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
 
     try:
         status_box.update(label="Discovering article URLs", state="running", expanded=True)
+        start_url = discovery_url or url
         urls = await collect_article_urls(
-            url,
+            start_url,
             max_articles,
             progress_callback=update_progress,
             max_pages=24,
@@ -175,22 +178,43 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
             f"Discovery complete · {len(urls)} URLs ready for extraction",
         )
 
+        extraction_diagnostics = {}
         articles_data = await scrape_articles_parallel(
             urls,
             max_workers=6,
             target_authors=200,
             progress_callback=update_progress,
+            diagnostics_out=extraction_diagnostics,
         )
+        results["stats"]["extraction_diagnostics"] = extraction_diagnostics
+
         if not articles_data:
+            reasons = extraction_diagnostics.get("failure_reasons", {})
+            reason_summary = ", ".join(
+                f"{reason}: {count}" for reason, count in sorted(
+                    reasons.items(), key=lambda item: item[1], reverse=True
+                )[:4]
+            ) or "no failure details were recorded"
+            samples = extraction_diagnostics.get("failure_samples", [])
+            sample_detail = ""
+            if samples:
+                first = samples[0]
+                sample_detail = (
+                    f" Example: {first.get('host')} — {first.get('reason')}: "
+                    f"{first.get('detail') or 'no further details'}."
+                )
             raise RuntimeError(
-                f"Found {len(urls)} article URLs, but none could be parsed. "
-                "The publication may block automated browsers, require JavaScript/cookies, "
-                "or return access-denied pages. Try another section URL."
+                f"Found {len(urls)} article URLs, but could not retain any article pages. "
+                f"Failure breakdown: {reason_summary}.{sample_detail} "
+                "If the publisher is returning an access challenge (403/429/CAPTCHA), "
+                "NewsTrace will report it rather than bypassing the site's controls."
             )
 
         results["articles"] = articles_data
         results["stats"]["articles_scraped"] = len(articles_data)
-        results["stats"]["article_failures"] = max(0, len(urls) - len(articles_data))
+        results["stats"]["article_failures"] = extraction_diagnostics.get(
+            "failed", max(0, len(urls) - len(articles_data))
+        )
 
         articles_df = pd.DataFrame(articles_data)
         if "author" not in articles_df.columns:
@@ -361,6 +385,20 @@ def run_unified_pipeline(user_query, max_articles, enable_profiles, enable_googl
             state="complete",
             expanded=False,
         )
+        raw_input = user_query.strip()
+        candidate_input = (
+            raw_input
+            if raw_input.startswith(("http://", "https://"))
+            else f"https://{raw_input}"
+        )
+        parsed_input = urlparse(candidate_input)
+        direct_start_url = (
+            normalize_url(candidate_input)
+            if parsed_input.netloc and "." in (parsed_input.hostname or "")
+            and not any(ch.isspace() for ch in raw_input)
+            else url
+        )
+
         return asyncio.run(
             unified_scraping_pipeline(
                 url,
@@ -368,6 +406,7 @@ def run_unified_pipeline(user_query, max_articles, enable_profiles, enable_googl
                 max_articles,
                 enable_profiles,
                 enable_google,
+                discovery_url=direct_start_url,
             )
         )
     except Exception as exc:
