@@ -611,10 +611,15 @@ export default function HomePage() {
             {desk === "front" ? "INDEPENDENT REPORTING / INTELLIGENCE / CONTEXT" : "THE NEWSROOM / " + currentDesk.toUpperCase()}
           </div>
           <h1 className="front-title">
-            {desk === "front" ? <>The world, <em>observed</em> closely.</> :
-              desk === "archive" ? <>The record, <em>within reach.</> :
-              desk === "coverage" ? <>Follow the <em>coverage.</em></> :
-              <>The people behind <em>the bylines.</em></>}
+            {desk === "front" ? (
+              <span>The world, <em>observed</em> closely.</span>
+            ) : desk === "archive" ? (
+              <span>The record, <em>within reach.</em></span>
+            ) : desk === "coverage" ? (
+              <span>Follow the <em>coverage.</em></span>
+            ) : (
+              <span>The people behind <em>the bylines.</em></span>
+            )}
           </h1>
           <p className="front-deck">
             NewsTrace turns publication coverage into a searchable record of stories, journalists and the subjects they report on. Each investigation begins with a source, and each result remains connected to its original report.
