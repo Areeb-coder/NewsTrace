@@ -89,6 +89,12 @@ If the API process restarts while a job is queued or running, startup recovery c
 
 The API validates the outlet input and bounds the requested article count (10–500). Errors returned to the UI are plain-language messages; detailed exceptions remain in the server logs.
 
+### Public-source safety and request limits
+
+The discovery-start endpoint is limited by client address (5 starts per 10 minutes by default; configurable with NEWSTRACE_DISCOVERY_RATE_LIMIT and NEWSTRACE_DISCOVERY_RATE_WINDOW). Direct source URLs reject non-HTTP(S) schemes, embedded credentials, nonstandard ports, localhost/internal hostnames and obvious non-public IP ranges. The frontend only renders publisher/article links with http/https schemes.
+
+These checks are a first layer, not a complete outbound-network security boundary: hostname DNS can still resolve to a private address or change after validation. Before exposing the crawler to untrusted high-volume use, enforce outbound egress restrictions at the container/network layer and move rate limits into a shared gateway/store for multi-instance deployments.
+
 ## Data and persistence
 
 backend/jobs.py stores job status, progress events, statistics, warnings and JSON article records in SQLite. The default path is data/newstrace.sqlite3. Set NEWSTRACE_DB_PATH to choose another path.
