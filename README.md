@@ -431,18 +431,22 @@ If you intend to allow others to legally reuse, modify, or distribute the projec
 **Python · Streamlit · Playwright · BeautifulSoup · Pandas · Supabase**
 
 
-## 🎛️ Interface & Experience
+## 🗞️ Interface & Experience
 
-The Streamlit interface is designed as a focused media-intelligence workspace:
+NewsTrace uses a **vintage newspaper / digital editorial** design system rather than a generic SaaS dashboard:
 
-- A persistent workspace sidebar and clear investigation entry point.
-- A dark newsroom-inspired visual system with restrained mint accents, compact metadata and readable typography.
-- Separate **Overview**, **Coverage**, **Journalists** and **Dataset** workspaces.
-- Search and section filters for collected records, with CSV and JSON exports.
-- Coverage charts and an author–section relationship view.
-- Responsive layout adjustments and reduced-motion support.
+- Newspaper masthead with edition date, issue marker and editorial navigation.
+- Warm parchment, charcoal ink, muted sepia and restrained oxblood accents.
+- Cormorant Garamond display typography, Source Sans 3 reading text and IBM Plex Mono metadata.
+- Asymmetric lead-story layout, ruled story columns, thin dividers and subtle paper grain.
+- Publisher lead images extracted from Open Graph, Twitter image metadata or article figures, where available.
+- Grayscale/sepia image treatment, restrained masthead motion, headline hover details and reduced-motion support.
+- A source-linked front page plus dedicated **Coverage & analysis**, **Journalist directory** and **Search the archive** views.
+- Responsive newspaper columns that reflow into a readable single-column edition on mobile.
 
-The interface prioritizes evidence, legibility and useful data exploration over decorative animation.
+The design borrows principles from The Economist, The Guardian's interactive journalism, The Pudding's visual essays, the Library of Congress newspaper guides, The Public Domain Review and Awwwards editorial/typography collections. These references informed hierarchy and interaction; NewsTrace retains its own brand and workflow.
+
+See [DESIGN.md](DESIGN.md) for the design rationale and references.
 
 ## 🚀 Cloud Deployment
 
