@@ -9,3 +9,20 @@ services:
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+
+  # New Next.js + FastAPI web application. The original Streamlit service
+  # above remains available while the new application is verified.
+  - type: web
+    name: newstrace-web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.web
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: NEWSTRACE_MAX_ACTIVE_JOBS
+        value: "1"
+      - key: NEWSTRACE_DB_PATH
+        value: /app/data/newstrace.sqlite3
