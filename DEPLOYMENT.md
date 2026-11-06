@@ -34,6 +34,10 @@ In Render:
 
 The Blueprint sets `NEWSTRACE_REQUIRE_DURABLE_STORE=true`. The service will fail its startup/health check instead of silently falling back to ephemeral SQLite if the migration or credentials are missing.
 
+### Render Free plan is preview/test only
+
+The committed `render.yaml` intentionally uses `plan: free` for a cost-free preview. Render explicitly says Free web services should not be used for production. They spin down after 15 minutes without inbound traffic, take about a minute to spin back up, lose local filesystem changes when they spin down/restart, and may be restarted at any time. That means an active Playwright investigation can be interrupted when the process stops. Supabase keeps completed job/result snapshots, but it cannot keep an in-process task running. Before production use, change the service to a paid always-on Render compute plan with resources appropriate for Python + Chromium; the documented 1 CPU / 2 GB plan (`1c-2g`, legacy `standard`) is a reasonable starting point to benchmark, not a guaranteed capacity target. Keep a single service instance and one Uvicorn worker until background execution moves to a durable shared queue.
+
 ## 3. Environment variables
 
 | Variable | Value |
