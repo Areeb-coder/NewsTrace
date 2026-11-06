@@ -1,6 +1,8 @@
 """Regression tests for NewsTrace discovery and article parsing."""
 
+import ast
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
@@ -17,6 +19,30 @@ from utils.article_collector import (
     normalize_url,
     same_domain,
 )
+
+
+class ProgressCallbackContractTests(unittest.TestCase):
+    def test_article_collector_notify_calls_supply_all_five_arguments(self):
+        source_path = Path(__file__).resolve().parents[1] / "utils" / "article_collector.py"
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_notify"
+        ]
+        self.assertTrue(calls, "Expected article collector progress notifications")
+        malformed = [
+            (node.lineno, len(node.args))
+            for node in calls
+            if len(node.args) != 5
+        ]
+        self.assertEqual(
+            malformed,
+            [],
+            "Every article_collector._notify call must pass "
+            "(callback, stage, current, total, detail).",
+        )
 
 
 class UrlNormalizationTests(unittest.TestCase):
