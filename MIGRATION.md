@@ -97,6 +97,6 @@ The archive reads a bounded recent window of completed jobs. For substantially l
 
 ## Deployment
 
-The root `render.yaml` defines one Docker web service using `Dockerfile.web`. Node builds the Next.js static export; a Playwright Python image runs FastAPI and serves the export. The production service uses one Uvicorn worker and a durable Supabase store.
+The root `render.yaml` defines one Docker web service using `Dockerfile.web`. Node builds the Next.js static export; a Playwright Python image runs FastAPI and serves the export. The service uses one Uvicorn worker and a durable Supabase store. The committed Blueprint selects Render Free for preview/testing only; upgrade to paid always-on compute before production because Free services spin down and can interrupt active in-process jobs. Completed Supabase records remain durable, but active tasks do not survive process restarts.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the exact Render and Supabase steps, and [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for database configuration.
