@@ -159,13 +159,15 @@ async def _get_next_page_hrefs(page):
     """
     selector = 'a[rel="next"], a.next, a[aria-label*="next" i]'
     try:
+        # evaluate_all inspects the current DOM immediately; it does not wait
+        # for a match, so a missing next link naturally returns an empty list.
         return await page.locator(selector).evaluate_all(
-            "(anchors) => anchors.map((anchor) => anchor.getAttribute('href')).filter(Boolean)",
-            timeout=500,
+            "(anchors) => anchors.map((anchor) => anchor.getAttribute('href')).filter(Boolean)"
         )
     except Exception as exc:
         print(f"Skipping optional pagination lookup: {type(exc).__name__}: {exc}")
         return []
+
 
 
 def is_section_page(url, base_domain):
