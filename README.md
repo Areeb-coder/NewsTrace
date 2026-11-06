@@ -143,7 +143,11 @@ The archive currently reads a bounded recent window of stored jobs (up to 100 in
 
 ## Research and responsible use
 
-NewsTrace uses bounded request timeouts and concurrency, rejects obvious local/private URL targets, and retains source links. It cannot guarantee access to every publisher: sites may block automation, require authentication, use paywalls or return non-article interstitial pages. Respect publisher terms, applicable laws, robots policies and rate limits. The system must not bypass access controls.
+NewsTrace bounds publication-name lookup and article-request timeouts, reports active article fetches as they begin, and validates public HTTP(S) destinations before outbound requests. HTTP redirects are followed one hop at a time only after validating each destination. Playwright browser contexts apply the same public-network check to navigations and subresources. Private, loopback, link-local and other non-global DNS answers are rejected.
+
+These checks reduce server-side request forgery risk but are not a substitute for infrastructure-level egress filtering. DNS is resolved again by the HTTP/browser networking stack after validation, so a hostile DNS change between validation and connection remains a possible time-of-check/time-of-use gap. Production hosting should deny access to private, loopback, link-local and cloud metadata ranges at the network layer as well.
+
+NewsTrace cannot guarantee access to every publisher: sites may block automation, require authentication, use paywalls or return non-article interstitial pages. Respect publisher terms, applicable laws, robots policies and rate limits. The system must not bypass access controls.
 
 ## Validation
 
