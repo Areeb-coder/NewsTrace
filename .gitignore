@@ -22,4 +22,11 @@ data/*.json
 .DS_Store
 Thumbs.db
 
+# Secrets
 .env
+.streamlit/secrets.toml
+
+# Local container / build output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
