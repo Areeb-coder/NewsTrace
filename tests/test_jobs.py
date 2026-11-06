@@ -4,7 +4,22 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.jobs import JobStore
+from backend.jobs import JobStore, ProgressThrottle
+
+
+class ProgressThrottleTests(unittest.TestCase):
+    def test_stage_changes_and_completion_are_never_throttled(self):
+        throttle = ProgressThrottle(min_interval_seconds=0.3)
+        self.assertTrue(throttle.should_report("API discovery", 0, 7, now=10.0))
+        self.assertFalse(throttle.should_report("API discovery", 1, 7, now=10.1))
+        self.assertTrue(throttle.should_report("HTML discovery", 0, 18, now=10.12))
+        self.assertTrue(throttle.should_report("HTML discovery", 18, 18, now=10.13))
+
+    def test_repetitive_progress_resumes_after_interval(self):
+        throttle = ProgressThrottle(min_interval_seconds=0.3)
+        self.assertTrue(throttle.should_report("Article extraction", 0, 10, now=5.0))
+        self.assertFalse(throttle.should_report("Article extraction", 1, 10, now=5.2))
+        self.assertTrue(throttle.should_report("Article extraction", 2, 10, now=5.31))
 
 
 class DiscoveryJobStoreTests(unittest.TestCase):
