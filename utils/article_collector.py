@@ -3,7 +3,7 @@ Bounded article discovery for news websites.
 
 The collector probes lightweight JSON APIs first and falls back to a bounded
 Playwright crawl. Progress callbacks are optional so this module can also be
-used outside Streamlit.
+used by API and command-line callers.
 """
 
 import asyncio
