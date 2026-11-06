@@ -160,7 +160,7 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
             start_url,
             max_articles,
             progress_callback=update_progress,
-            max_pages=24,
+            max_pages=18,
         )
         results["stats"]["urls_found"] = len(urls)
 
@@ -925,6 +925,28 @@ if submitted:
             st.session_state["df"] = df_result
             st.session_state["outlet"] = outlet.strip()
             st.session_state["stats"] = stats_result or {}
+
+            extraction_report = (stats_result or {}).get("extraction_diagnostics", {})
+            if extraction_report.get("failed"):
+                reasons = extraction_report.get("failure_reasons", {})
+                reason_text = ", ".join(
+                    f"{reason}: {count}"
+                    for reason, count in sorted(reasons.items(), key=lambda item: item[1], reverse=True)[:4]
+                )
+                st.warning(
+                    f"{extraction_report['failed']} of {extraction_report.get('processed', 0)} "
+                    f"article pages could not be parsed. "
+                    + (f"Most common causes: {reason_text}." if reason_text else "")
+                )
+                with st.expander("View extraction diagnostics"):
+                    for sample in extraction_report.get("failure_samples", []):
+                        st.markdown(
+                            f"- **{sample.get('host', 'Unknown host')}** — "
+                            f"{sample.get('reason', 'unknown')}: "
+                            f"{sample.get('detail') or 'No additional details'} "
+                            f"(browser HTTP: {sample.get('browser_http_status')}, "
+                            f"HTTP fallback: {sample.get('requests_http_status')})"
+                        )
 
             # Persistence is optional; analysis remains available when no DB is configured.
             if db_connected:
