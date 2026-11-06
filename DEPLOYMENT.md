@@ -1,86 +1,86 @@
-# Deploying NewsTrace
+# NewsTrace production deployment
 
-NewsTrace is a **Streamlit + Playwright** application. It runs a long-lived
-Streamlit server and launches Chromium for web scraping. It is not a static
-website.
+NewsTrace is deployed as **one Docker web service**: a statically exported Next.js editorial frontend served by FastAPI, with the existing Python/Playwright investigation pipeline behind the API.
 
-## Recommended: Render (Docker)
+## 1. Configure durable Supabase storage
 
-The repository includes a `Dockerfile` and `render.yaml`.
+Render's free web-service filesystem is ephemeral. Do not rely on the local SQLite database for production job/result history.
 
-1. Push this repository to GitHub.
-2. In Render, choose **New → Blueprint** and connect
-   `Areeb-coder/NewsTrace`.
-3. Render reads `render.yaml`, builds the Docker image, and deploys the
-   Streamlit service.
-4. When the deployment is ready, open the generated `.onrender.com` URL.
+1. Open your Supabase project.
+2. Run the SQL in `supabase/migrations/20261106_newstrace_discovery_jobs.sql`.
+3. Copy the Supabase project URL.
+4. Copy the **service_role** key from the Supabase API settings. It is a private server credential.
 
-The Docker image installs the Playwright browser binaries and operating
-system dependencies. The Playwright image version is pinned to match the
-Python package version in `requirements.txt`.
+The migration creates `public.newstrace_discovery_jobs`, enables row-level security, and deliberately adds no anon/authenticated policies. The FastAPI backend accesses it with `SUPABASE_SERVICE_ROLE_KEY`.
 
-### Optional environment variables
+The existing supplementary `articles` and `journalists` tables are described in [SUPABASE_SETUP.md](SUPABASE_SETUP.md). They are optional; the durable job table contains the authoritative job state and article-result snapshots used by the new API.
 
-Configure these in Render's **Environment** settings. Do not commit them
-to GitHub.
+## 2. Deploy the canonical application
 
-| Variable | Required? | Purpose |
-|---|---|---|
-| `SUPABASE_URL` | No | Enables Supabase persistence |
-| `SUPABASE_KEY` | No | Supabase anon/public key used with your database RLS policies |
-| `SERP_API_KEY` | No | Enables optional Google/SerpAPI enrichment |
+The root `render.yaml` now defines one service named `newstrace` and uses `Dockerfile.web`. The Dockerfile:
 
-The dashboard can run without these values. Supabase persistence and Google
-enrichment are optional features.
+1. Builds the static Next.js export.
+2. Installs the Python API and Playwright dependencies.
+3. Copies the Next.js export into the FastAPI image.
+4. Starts one Uvicorn worker serving both the frontend and `/api/*`.
 
-## Run locally
+In Render:
 
-Use Python 3.12, then run:
+1. Open the existing NewsTrace Blueprint/service.
+2. Sync the repository's latest `main` configuration.
+3. When prompted, set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+4. Apply the Blueprint and wait for the Docker build and health check.
+5. Open the existing `.onrender.com` service URL. The root path serves the newspaper UI; `/api/health` checks the API and durable store.
 
-```bash
-python -m venv .venv
-# Windows PowerShell:
-.venv\Scripts\Activate.ps1
-# macOS/Linux:
-# source .venv/bin/activate
+The Blueprint sets `NEWSTRACE_REQUIRE_DURABLE_STORE=true`. The service will fail its startup/health check instead of silently falling back to ephemeral SQLite if the migration or credentials are missing.
 
+## 3. Environment variables
+
+| Variable | Value |
+|---|---|
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Private service-role key; backend only |
+| `NEWSTRACE_REQUIRE_DURABLE_STORE` | `true` |
+| `NEWSTRACE_MAX_ACTIVE_JOBS` | `1` |
+| `SERP_API_KEY` | Optional; only for search enrichment |
+
+Do not set `NEXT_PUBLIC_API_BASE_URL` in production. The Next.js export and API share the same origin.
+
+## 4. Local production-like run
+
+Backend:
+
+~~~bash
 python -m pip install -r requirements.txt
-playwright install chromium
-streamlit run app.py
-```
+python -m playwright install chromium
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
+~~~
 
-Open `http://localhost:8501`.
+Frontend build:
 
-## Why not Vercel or GitHub Pages?
+~~~bash
+cd frontend
+npm install
+npm run typecheck
+npm run build
+~~~
 
-GitHub stores the source code; it does not run this Streamlit server.
-GitHub Pages and Vercel's normal static/frontend deployment model are not
-a drop-in host for a persistent Streamlit process with Playwright/Chromium.
-Use a Docker-capable application host such as Render for this repository.
+When building the combined Docker image, `Dockerfile.web` performs the frontend build and copies `frontend/out` into the API image.
 
-## Troubleshooting
+## 5. Health and troubleshooting
 
-- **Chromium executable missing:** verify the service was built from the
-  repository's Dockerfile. Do not deploy this app as a static site.
-- **Missing Python module:** redeploy after confirming the dependency exists
-  in `requirements.txt`; the HTML parser `lxml` is explicitly included.
-- **Supabase connection message:** this is optional. Add valid Supabase
-  environment variables only when database persistence is needed.
-- **Slow or memory-heavy scraping:** reduce the dashboard's Max Articles
-  setting and enable optional enrichment only when needed.
+Open `/api/health`. A healthy production response reports `storage.backend = "supabase"`, `storage.durable = true`, and `storage.ok = true`.
 
+- **Service fails to start / HTTP 503 health:** apply the Supabase SQL migration and verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+- **Homepage returns 503:** the Next.js static build did not produce `frontend/out/index.html`; inspect the Docker build logs.
+- **Investigation becomes interrupted after deploy/restart:** this is expected for an in-process worker. Completed job/results remain in Supabase; active execution is marked interrupted and can be retried.
+- **Publisher returns no results:** check job events and server logs. A successful application health check does not mean every publisher allows automated extraction.
+- **Optional enrichment warning:** set `SERP_API_KEY` only if search enrichment is required.
 
-## Scraping progress and troubleshooting
+## 6. Scaling boundary
 
-The investigation panel reports each phase separately:
+Keep one Uvicorn worker and one service instance. The job semaphore and task scheduler are process-local. If NewsTrace later needs multiple instances or jobs that resume after process restarts, move execution to a durable shared queue/worker system before scaling out.
 
-1. API endpoint discovery (with bounded request timeouts).
-2. HTML discovery (maximum 18 pages per investigation).
-3. Article extraction (six reusable Playwright pages sharing one Chromium process).
-4. Optional author-profile and search enrichment.
+## 7. Streamlit retirement
 
-A page that times out or is blocked is counted as a failed page/article and skipped; it should not leave the interface on a single indefinite spinner. The progress bar shows the latest stage, processed count and failure count.
-
-If discovery finishes with no URLs, try a direct section URL rather than only the publication homepage. If URLs are found but no articles are parsed, the publication may block automated browsers, require authenticated cookies, or use a page structure that needs a source-specific extractor. The UI now shows this distinction rather than silently returning an empty result.
-
-For production, deploy the repository's Dockerfile so Chromium and its required system libraries are present. A successful Streamlit health check confirms the server starts; it does not guarantee every publisher permits automated scraping.
+The production Blueprint no longer defines a Streamlit service. The canonical service uses `Dockerfile.web`, `/api/health`, Next.js and FastAPI. There is no Streamlit entry point in the production application.
