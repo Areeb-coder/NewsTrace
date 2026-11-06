@@ -15,66 +15,269 @@ from playwright.async_api import async_playwright
 from scrapers.enhanced_author_extractor import extract_author_comprehensive
 
 
-async def _extract_from_page(page, article_url):
+def _candidate_author_name(value):
+    """Normalize common JSON-LD Person / string author values."""
+    if isinstance(value, dict):
+        value = value.get("name") or value.get("givenName")
+        if isinstance(value, dict):
+            value = value.get("name")
+    if not isinstance(value, str):
+        return None
+
+    value = re.sub(
+        r"^(?:By|Written by|Posted by|Author:|Reported by)\s+",
+        "",
+        value.strip(),
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(r"\s+", " ", value)
+    if not value or len(value) > 80 or len(value.split()) > 6:
+        return None
+    return value
+
+
+def _walk_jsonld(value):
+    """Yield nested JSON-LD objects, including @graph and arrays."""
+    if isinstance(value, list):
+        for item in value:
+            yield from _walk_jsonld(item)
+    elif isinstance(value, dict):
+        yield value
+        for child in value.values():
+            if isinstance(child, (dict, list)):
+                yield from _walk_jsonld(child)
+
+
+def _extract_jsonld_author(soup):
+    """Read Article/NewsArticle authors from direct nodes and @graph blocks."""
+    for script in soup.find_all("script", type="application/ld+json"):
+        raw = script.string or script.get_text()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+
+        for node in _walk_jsonld(payload):
+            author_value = node.get("author") or node.get("creator")
+            if not author_value:
+                continue
+
+            candidates = author_value if isinstance(author_value, list) else [author_value]
+            for candidate in candidates:
+                name = _candidate_author_name(candidate)
+                if name:
+                    return name
+    return None
+
+
+def _parse_article_html(article_url, html, diagnostics=None):
+    """
+    Parse an article defensively.
+
+    An unavailable byline is not a failed article: the page can still yield a
+    title, date, section and source URL for review.
+    """
+    diagnostics = diagnostics if diagnostics is not None else {}
+    if not html or not str(html).strip():
+        diagnostics["reason"] = "empty_html"
+        return None
+
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception as exc:
+        diagnostics["reason"] = "html_parse_error"
+        diagnostics["detail"] = f"{type(exc).__name__}: {exc}"
+        return None
+
+    try:
+        author_info = extract_author_comprehensive(soup, html) or {}
+    except Exception as exc:
+        diagnostics["author_parser_warning"] = f"{type(exc).__name__}: {exc}"
+        author_info = {}
+
+    author = (
+        author_info.get("name")
+        or _extract_jsonld_author(soup)
+        or extract_author(soup)
+    )
+    title = extract_title(soup)
+
+    try:
+        author_name = validate_author(author, title)
+    except Exception as exc:
+        diagnostics["author_validation_warning"] = f"{type(exc).__name__}: {exc}"
+        author_name = "Unknown"
+
+    try:
+        section = extract_section(soup)
+    except Exception as exc:
+        # A malformed optional canonical link must not discard an article.
+        diagnostics["section_parser_warning"] = f"{type(exc).__name__}: {exc}"
+        section = None
+
+    try:
+        published_date = extract_date(soup)
+    except Exception as exc:
+        diagnostics["date_parser_warning"] = f"{type(exc).__name__}: {exc}"
+        published_date = None
+
+    # Detect short anti-bot/interstitial pages, not ordinary publisher content.
+    visible_text = soup.get_text(" ", strip=True).lower()
+    title_text = (title or "").lower()
+    challenge_markers = (
+        "verify you are human",
+        "checking your browser",
+        "attention required",
+        "access denied",
+        "captcha",
+        "enable javascript and cookies",
+    )
+    if (
+        any(marker in visible_text or marker in title_text for marker in challenge_markers)
+        and not soup.find("article")
+        and len(visible_text) < 1800
+    ):
+        diagnostics["reason"] = "anti_bot_challenge"
+        diagnostics["detail"] = "The response was an access-check page, not the article."
+        return None
+
+    # Require at least some article identity/content; do not store blank shells.
+    if not title and not soup.find("article") and len(visible_text) < 160:
+        diagnostics["reason"] = "no_article_content"
+        diagnostics["detail"] = "The page loaded but contained no recognizable article content."
+        return None
+
+    result = {
+        "author": author_name or "Unknown",
+        "title": title or "Untitled article",
+        "section": section,
+        "date": published_date,
+        "url": article_url,
+    }
+
+    if author_name and author_name != "Unknown":
+        for source_key, output_key in (
+            ("role", "author_role"),
+            ("email", "author_email"),
+            ("bio_snippet", "author_bio"),
+        ):
+            if author_info.get(source_key):
+                result[output_key] = author_info[source_key]
+
+        social = author_info.get("social") or {}
+        for platform in ("twitter", "linkedin", "instagram", "facebook"):
+            profile = social.get(platform)
+            if isinstance(profile, dict):
+                if profile.get("handle"):
+                    result[platform] = profile["handle"]
+                if profile.get("url") and platform in {"twitter", "linkedin"}:
+                    result[f"{platform}_url"] = profile["url"]
+
+    diagnostics["reason"] = "ok"
+    diagnostics["method"] = diagnostics.get("method", "playwright")
+    return result
+
+
+def _fetch_article_with_requests(article_url):
+    """Independent HTTP fallback for sites that reject or break headless browsers."""
+    import requests
+
+    response = requests.get(
+        article_url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+        timeout=(4, 9),
+        allow_redirects=True,
+    )
+    return response.status_code, response.url, response.text, response.headers.get("Content-Type", "")
+
+
+async def _extract_from_page(page, article_url, diagnostics=None):
+    diagnostics = diagnostics if diagnostics is not None else {}
+    browser_error = None
+    response_status = None
+
     try:
         response = await page.goto(
             article_url,
             timeout=12000,
             wait_until="domcontentloaded",
         )
-        if response is not None and response.status >= 400:
+        if response is not None:
+            response_status = response.status
+            diagnostics["browser_http_status"] = response_status
+
+        if response is None or response_status is None or response_status < 400:
+            html = await page.content()
+            diagnostics["method"] = "playwright"
+            parsed = _parse_article_html(article_url, html, diagnostics)
+            if parsed:
+                return parsed
+        else:
+            diagnostics["browser_error"] = f"HTTP {response_status}"
+    except Exception as exc:
+        browser_error = f"{type(exc).__name__}: {exc}"
+        diagnostics["browser_error"] = browser_error
+
+    # If Chromium was blocked, timed out or returned an error, try an ordinary
+    # HTTP request. The worker cap bounds the number of concurrent fallbacks.
+    try:
+        status_code, final_url, html, content_type = await asyncio.to_thread(
+            _fetch_article_with_requests,
+            article_url,
+        )
+        diagnostics["requests_http_status"] = status_code
+        diagnostics["requests_final_url"] = final_url
+
+        if status_code >= 400:
+            diagnostics["reason"] = f"http_{status_code}"
+            diagnostics["detail"] = f"Browser: {browser_error or response_status}; HTTP fallback returned {status_code}."
             return None
 
-        html = await page.content()
-        soup = BeautifulSoup(html, "lxml")
-        author_info = extract_author_comprehensive(soup, html) or {}
+        if "html" not in (content_type or "").lower() and not html.lstrip().lower().startswith(("<!doctype html", "<html")):
+            diagnostics["reason"] = "non_html_response"
+            diagnostics["detail"] = f"HTTP fallback returned {content_type or 'an unknown content type'}."
+            return None
 
-        # Fall back to selectors and metadata; do not depend on a closed page.
-        author = author_info.get("name") or extract_author(soup)
-        title = extract_title(soup)
-        author_name = validate_author(author, title)
+        diagnostics["method"] = "requests_fallback"
+        parsed = _parse_article_html(final_url or article_url, html, diagnostics)
+        if parsed:
+            parsed["url"] = article_url
+            return parsed
 
-        result = {
-            "author": author_name,
-            "title": title,
-            "section": extract_section(soup),
-            "date": extract_date(soup),
-            "url": article_url,
-        }
-
-        if author_name != "Unknown":
-            for source_key, output_key in (
-                ("role", "author_role"),
-                ("email", "author_email"),
-                ("bio_snippet", "author_bio"),
-            ):
-                if author_info.get(source_key):
-                    result[output_key] = author_info[source_key]
-
-            social = author_info.get("social") or {}
-            for platform in ("twitter", "linkedin", "instagram", "facebook"):
-                profile = social.get(platform)
-                if isinstance(profile, dict):
-                    if profile.get("handle"):
-                        result[platform] = profile["handle"]
-                    if profile.get("url") and platform in {"twitter", "linkedin"}:
-                        result[f"{platform}_url"] = profile["url"]
-
-        return result
     except Exception as exc:
-        print(f"Article scrape failed ({article_url}): {type(exc).__name__}: {exc}")
-        return None
+        diagnostics["requests_error"] = f"{type(exc).__name__}: {exc}"
+
+    if not diagnostics.get("reason") or diagnostics.get("reason") == "ok":
+        diagnostics["reason"] = "fetch_failed"
+    if not diagnostics.get("detail"):
+        diagnostics["detail"] = (
+            diagnostics.get("requests_error")
+            or diagnostics.get("browser_error")
+            or "Neither Playwright nor the HTTP fallback returned usable article HTML."
+        )
+    return None
 
 
-async def scrape_journalist_info(article_url, page=None):
+async def scrape_journalist_info(article_url, page=None, diagnostics=None):
     """
     Extract a single article.
 
-    Pass a reusable Page for high-throughput batch mode. When called without
-    one, this function owns and closes its own browser resources.
+    Pass a reusable Page for batch mode. Optional diagnostics are populated
+    when both the browser and HTTP fallback fail.
     """
+    diagnostics = diagnostics if diagnostics is not None else {}
     if page is not None:
-        return await _extract_from_page(page, article_url)
+        return await _extract_from_page(page, article_url, diagnostics)
 
     async with async_playwright() as playwright:
         browser = None
@@ -84,9 +287,30 @@ async def scrape_journalist_info(article_url, page=None):
             context = await browser.new_context()
             page = await context.new_page()
             page.set_default_navigation_timeout(12000)
-            return await _extract_from_page(page, article_url)
+            return await _extract_from_page(page, article_url, diagnostics)
         except Exception as exc:
-            print(f"Could not start article browser: {type(exc).__name__}: {exc}")
+            diagnostics["reason"] = "browser_start_error"
+            diagnostics["detail"] = f"{type(exc).__name__}: {exc}"
+            print(f"Could not start article browser: {diagnostics['detail']}")
+            # Even if the browser cannot start, try the independent HTTP path.
+            try:
+                status_code, final_url, html, content_type = await asyncio.to_thread(
+                    _fetch_article_with_requests,
+                    article_url,
+                )
+                diagnostics["requests_http_status"] = status_code
+                if status_code < 400 and (
+                    "html" in (content_type or "").lower()
+                    or html.lstrip().lower().startswith(("<!doctype html", "<html"))
+                ):
+                    diagnostics["method"] = "requests_fallback"
+                    parsed = _parse_article_html(final_url or article_url, html, diagnostics)
+                    if parsed:
+                        parsed["url"] = article_url
+                        return parsed
+                diagnostics["reason"] = f"http_{status_code}"
+            except Exception as fallback_exc:
+                diagnostics["requests_error"] = f"{type(fallback_exc).__name__}: {fallback_exc}"
             return None
         finally:
             if context is not None:
