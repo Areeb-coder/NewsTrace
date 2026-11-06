@@ -66,6 +66,25 @@ class DiscoveryJobStoreTests(unittest.TestCase):
         self.assertEqual(result["stats"]["urls_found"], 25)
         self.assertEqual(len(result["warnings"]), 1)
 
+    def test_failed_job_preserves_last_observed_progress_counts(self):
+        job = self.store.create_job("Example News", {})
+        self.store.update_progress(
+            job["job_id"],
+            "Article extraction",
+            7,
+            25,
+            "Processed 7/25 article pages.",
+        )
+
+        self.store.fail_job(job["job_id"], "Publisher returned HTTP 403.")
+
+        failed = self.store.get_job(job["job_id"])
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["current"], 7)
+        self.assertEqual(failed["total"], 25)
+        self.assertEqual(failed["events"][-1]["current"], 7)
+        self.assertEqual(failed["events"][-1]["total"], 25)
+
     def test_restart_marks_queued_and_running_jobs_as_interrupted(self):
         queued = self.store.create_job("Queued Paper", {})
         running = self.store.create_job("Running Paper", {})
