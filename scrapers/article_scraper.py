@@ -1,84 +1,98 @@
 """
-Article scraper - Extract journalist info from individual articles
-Uses Playwright with multiple fallback strategies + ENHANCED author extraction
+Article-level journalist information extraction.
+
+The caller may pass a reusable Playwright Page. In batch mode this prevents
+launching a new Chromium process for every article.
 """
 
 import asyncio
 import json
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
 import re
+
+from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
+
 from scrapers.enhanced_author_extractor import extract_author_comprehensive
 
 
-async def scrape_journalist_info(article_url):
-    """
-    Extract journalist info from article page (FAST: 3s timeout)
-    Returns dict with comprehensive author info, title, section, date, url, social media
-    """
+async def _extract_from_page(page, article_url):
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            
-            # SPEED: Reduced timeout (3s instead of 5s)
-            await page.goto(article_url, timeout=3000, wait_until='domcontentloaded')
-            html = await page.content()
-            await browser.close()
-            
-            soup = BeautifulSoup(html, 'lxml')
-            
-            # ========== ENHANCED: Use comprehensive author extraction ==========
-            author_info = extract_author_comprehensive(soup, html)
-            
-            # Fallback to old method if new method fails
-            if not author_info['name']:
-                author_info['name'] = extract_author(soup, page)
-            
-            # Extract other fields
-            title = extract_title(soup)
-            section = extract_section(soup)
-            date = extract_date(soup)
-            
-            # Validate author
-            author_name = validate_author(author_info['name'], title)
-            
-            # ========== BUILD COMPREHENSIVE RESULT ==========
-            result = {
-                "author": author_name,
-                "title": title,
-                "section": section,
-                "date": date,
-                "url": article_url
-            }
-            
-            # Add enhanced fields if author is valid
-            if author_name != 'Unknown':
-                if author_info.get('role'):
-                    result['author_role'] = author_info['role']
-                if author_info.get('email'):
-                    result['author_email'] = author_info['email']
-                if author_info.get('bio_snippet'):
-                    result['author_bio'] = author_info['bio_snippet']
-                
-                # Add social media handles
-                social = author_info.get('social', {})
-                if social.get('twitter'):
-                    result['twitter'] = social['twitter'].get('handle')
-                    result['twitter_url'] = social['twitter'].get('url')
-                if social.get('linkedin'):
-                    result['linkedin'] = social['linkedin'].get('handle')
-                    result['linkedin_url'] = social['linkedin'].get('url')
-                if social.get('instagram'):
-                    result['instagram'] = social['instagram'].get('handle')
-                if social.get('facebook'):
-                    result['facebook'] = social['facebook'].get('handle')
-            
-            return result
-            
-    except Exception as e:
-        # Page won't load (timeout, paywall, etc.)
+        response = await page.goto(
+            article_url,
+            timeout=12000,
+            wait_until="domcontentloaded",
+        )
+        if response is not None and response.status >= 400:
+            return None
+
+        html = await page.content()
+        soup = BeautifulSoup(html, "lxml")
+        author_info = extract_author_comprehensive(soup, html) or {}
+
+        # Fall back to selectors and metadata; do not depend on a closed page.
+        author = author_info.get("name") or extract_author(soup)
+        title = extract_title(soup)
+        author_name = validate_author(author, title)
+
+        result = {
+            "author": author_name,
+            "title": title,
+            "section": extract_section(soup),
+            "date": extract_date(soup),
+            "url": article_url,
+        }
+
+        if author_name != "Unknown":
+            for source_key, output_key in (
+                ("role", "author_role"),
+                ("email", "author_email"),
+                ("bio_snippet", "author_bio"),
+            ):
+                if author_info.get(source_key):
+                    result[output_key] = author_info[source_key]
+
+            social = author_info.get("social") or {}
+            for platform in ("twitter", "linkedin", "instagram", "facebook"):
+                profile = social.get(platform)
+                if isinstance(profile, dict):
+                    if profile.get("handle"):
+                        result[platform] = profile["handle"]
+                    if profile.get("url") and platform in {"twitter", "linkedin"}:
+                        result[f"{platform}_url"] = profile["url"]
+
+        return result
+    except Exception as exc:
+        print(f"Article scrape failed ({article_url}): {type(exc).__name__}: {exc}")
         return None
+
+
+async def scrape_journalist_info(article_url, page=None):
+    """
+    Extract a single article.
+
+    Pass a reusable Page for high-throughput batch mode. When called without
+    one, this function owns and closes its own browser resources.
+    """
+    if page is not None:
+        return await _extract_from_page(page, article_url)
+
+    async with async_playwright() as playwright:
+        browser = None
+        context = None
+        try:
+            browser = await playwright.chromium.launch(headless=True, timeout=15000)
+            context = await browser.new_context()
+            page = await context.new_page()
+            page.set_default_navigation_timeout(12000)
+            return await _extract_from_page(page, article_url)
+        except Exception as exc:
+            print(f"Could not start article browser: {type(exc).__name__}: {exc}")
+            return None
+        finally:
+            if context is not None:
+                await context.close()
+            if browser is not None:
+                await browser.close()
 
 
 def extract_author(soup, page=None):
