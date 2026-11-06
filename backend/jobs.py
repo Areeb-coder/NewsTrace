@@ -190,18 +190,29 @@ class JobStore:
                  "total": len(articles), "at": now}
         with self._lock, self._connect() as db:
             row = db.execute(
-                "SELECT events_json FROM discovery_jobs WHERE id=?",
+                "SELECT events_json, outlet, source_url, created_at FROM discovery_jobs WHERE id=?",
                 (job_id,),
             ).fetchone()
-            events = json.loads(row["events_json"] or "[]") if row else []
+            if not row:
+                return
+            events = json.loads(row["events_json"] or "[]")
             events.append(event)
+            records = []
+            for index, article in enumerate(articles):
+                record = dict(article)
+                record.setdefault("job_id", job_id)
+                record.setdefault("outlet", row["outlet"])
+                record.setdefault("source_url", row["source_url"])
+                record.setdefault("recorded_at", row["created_at"])
+                record.setdefault("article_index", index)
+                records.append(record)
             db.execute(
                 """UPDATE discovery_jobs SET status=?, stage=?, detail=?,
                    current_count=?, total_count=?, events_json=?, stats_json=?,
                    warnings_json=?, results_json=?, error=NULL, updated_at=?, finished_at=?
                    WHERE id=?""",
-                (status, stage, detail, len(articles), len(articles), _json(events[-80:]),
-                 _json(stats), _json(warnings or []), _json(articles), now, now, job_id),
+                (status, stage, detail, len(records), len(records), _json(events[-80:]),
+                 _json(stats), _json(warnings or []), _json(records), now, now, job_id),
             )
 
     def fail_job(self, job_id: str, error: str, status: str = "failed") -> None:
