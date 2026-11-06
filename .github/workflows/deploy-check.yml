@@ -108,9 +108,9 @@ jobs:
 
                   await page.get_by_role("heading", name="The world, observed closely.").wait_for()
                   await page.get_by_role("button", name="Archive").click()
-                  const archiveHeading = page.get_by_role("heading", name="The record, within reach.")
-                  await archiveHeading.wait_for()
-                  await archiveHeading.click()
+                  archive_heading = page.get_by_role("heading", name="The record, within reach.")
+                  await archive_heading.wait_for()
+                  await archive_heading.click()
                   await page.keyboard.press("/")
                   search = page.get_by_label("Search the record")
                   await search.wait_for()
