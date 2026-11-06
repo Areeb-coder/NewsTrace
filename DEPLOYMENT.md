@@ -68,3 +68,19 @@ Use a Docker-capable application host such as Render for this repository.
   environment variables only when database persistence is needed.
 - **Slow or memory-heavy scraping:** reduce the dashboard's Max Articles
   setting and enable optional enrichment only when needed.
+
+
+## Scraping progress and troubleshooting
+
+The investigation panel reports each phase separately:
+
+1. API endpoint discovery (with bounded request timeouts).
+2. HTML discovery (maximum 18 pages per investigation).
+3. Article extraction (six reusable Playwright pages sharing one Chromium process).
+4. Optional author-profile and search enrichment.
+
+A page that times out or is blocked is counted as a failed page/article and skipped; it should not leave the interface on a single indefinite spinner. The progress bar shows the latest stage, processed count and failure count.
+
+If discovery finishes with no URLs, try a direct section URL rather than only the publication homepage. If URLs are found but no articles are parsed, the publication may block automated browsers, require authenticated cookies, or use a page structure that needs a source-specific extractor. The UI now shows this distinction rather than silently returning an empty result.
+
+For production, deploy the repository's Dockerfile so Chromium and its required system libraries are present. A successful Streamlit health check confirms the server starts; it does not guarantee every publisher permits automated scraping.
