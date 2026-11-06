@@ -19,7 +19,7 @@ import os
 import time
 
 # Page Config
-st.set_page_config(page_title="NewsTrace", page_icon="🔍", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="NewsTrace · Media Intelligence", page_icon="🔎", layout="wide", initial_sidebar_state="expanded")
 
 # (Landing page removed; app opens directly on the dashboard)
 
@@ -239,35 +239,33 @@ async def unified_scraping_pipeline(url, outlet_name, max_articles, enable_profi
 def run_unified_pipeline(user_query, max_articles, enable_profiles, enable_google):
     """Wrapper to run async pipeline in Streamlit"""
     loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Resolve website live (no predefined mapping)
-    with st.spinner("🔍 Resolving outlet website..."):
-        url, outlet_label = resolve_outlet(user_query)
-        if not url:
-            st.error("❌ Could not resolve this outlet. Try a full name or paste the website URL directly.")
-            return None, None
-        st.success(f"✓ Found: {url}")
-    
-    # Build progress message
-    steps = ["Article collection", "Parallel scraping"]
-    if enable_profiles:
-        steps.append("Author profiles")
-    if enable_google:
-        steps.append("Google enrichment")
-    
-    msg = f"⚡ Running: {' → '.join(steps)}..."
-    
-    # Run pipeline
-    with st.spinner(msg):
-        result = loop.run_until_complete(
-            unified_scraping_pipeline(url, outlet_label or user_query, max_articles, enable_profiles, enable_google)
-        )
-        
+    try:
+        asyncio.set_event_loop(loop)
+
+        # Resolve website live (no predefined mapping)
+        with st.spinner("Resolving the news outlet…"):
+            url, outlet_label = resolve_outlet(user_query)
+            if not url:
+                st.error("Could not resolve this outlet. Paste its full website URL and try again.")
+                return None, None
+            st.success(f"Source resolved: {url}")
+
+        steps = ["Article discovery", "Parallel extraction"]
+        if enable_profiles:
+            steps.append("Author profiles")
+        if enable_google:
+            steps.append("Search enrichment")
+
+        with st.spinner(f"Running { ' · '.join(steps) }…"):
+            result = loop.run_until_complete(
+                unified_scraping_pipeline(url, outlet_label or user_query, max_articles, enable_profiles, enable_google)
+            )
         if result:
-            df, stats = result
-            return df, stats
+            return result
         return None, None
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
 
 def create_chart(df):
@@ -285,7 +283,7 @@ def create_chart(df):
         orientation='h',
         text=counts.values,
         texttemplate='%{text}',
-        marker=dict(color='#1f77b4'),
+        marker=dict(color='#67DDB5', line=dict(color='rgba(103,221,181,0.18)', width=1)),
         hovertemplate='%{y}: %{x} articles<extra></extra>'
     )])
     
@@ -295,6 +293,10 @@ def create_chart(df):
         yaxis=dict(title='', autorange='reversed'),
         height=400,
         showlegend=False,
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#DCE7F2', family='Inter, ui-sans-serif, sans-serif'),
+        xaxis=dict(title='Articles', tickmode='linear', dtick=1, gridcolor='rgba(168,185,205,0.12)', zeroline=False, color='#9BAFC3'),
+        yaxis=dict(title='', autorange='reversed', color='#DCE7F2'),
         margin=dict(l=150, r=20, t=40, b=40)
     )
     return fig
@@ -358,7 +360,7 @@ def create_author_section_network(df, max_authors=40):
 
     edge_trace = go.Scatter(
         x=edge_x, y=edge_y,
-        line=dict(width=2, color='rgba(30,58,138,0.6)'),  # Increased width and opacity
+        line=dict(width=1.5, color='rgba(103,221,181,0.30)'),  # Increased width and opacity
         hoverinfo='none', mode='lines'
     )
 
@@ -370,7 +372,7 @@ def create_author_section_network(df, max_authors=40):
 
     section_trace = go.Scatter(
         x=sx, y=sy, mode='markers+text',
-        marker=dict(size=18, color='rgba(99,102,241,0.9)', line=dict(color='white', width=1)),
+        marker=dict(size=18, color='rgba(113,151,255,0.92)', line=dict(color='rgba(235,242,250,0.8)', width=1)),
         text=sections, textposition='top center',
         hovertext=stext, hoverinfo='text',
         name='Sections'
@@ -388,7 +390,7 @@ def create_author_section_network(df, max_authors=40):
 
     author_trace = go.Scatter(
         x=ax, y=ay, mode='markers',
-        marker=dict(size=asize, color='rgba(16,185,129,0.9)', line=dict(color='white', width=1)),
+        marker=dict(size=asize, color='rgba(103,221,181,0.92)', line=dict(color='rgba(235,242,250,0.8)', width=1)),
         hovertext=atext, hoverinfo='text',
         name='Authors'
     )
@@ -398,7 +400,9 @@ def create_author_section_network(df, max_authors=40):
         title='Author–Section Network (node size = article count)',
         xaxis=dict(showgrid=False, zeroline=False, visible=False),
         yaxis=dict(showgrid=False, zeroline=False, visible=False),
-        showlegend=False, height=520, margin=dict(l=20, r=20, t=50, b=20)
+        showlegend=False, height=520, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#DCE7F2', family='Inter, ui-sans-serif, sans-serif'),
+        margin=dict(l=20, r=20, t=50, b=20)
     )
     return fig
 
@@ -452,214 +456,606 @@ def display_journalist_profiles(df):
     st.dataframe(profiles_df, width='stretch', height=500, hide_index=True)
 
 
-# ==================== MAIN UI ====================
-st.title("🔍 NewsTrace")
-st.markdown("**Unified Journalist Intelligence System**")
 
-# Supabase connection status
-try:
-    connected, msg = check_connection()
-    if connected:
-        st.success("✅ Database connected")
+# ==================== NEWSROOM WORKSPACE ====================
+
+def inject_newsroom_styles():
+    st.markdown(
+        """
+        <style>
+        :root {
+            --nt-bg: #080F1B;
+            --nt-panel: #101B2A;
+            --nt-panel-soft: #132235;
+            --nt-border: rgba(157, 180, 205, .14);
+            --nt-text: #EAF1F8;
+            --nt-muted: #93A6BA;
+            --nt-accent: #67DDB5;
+            --nt-blue: #87A9FF;
+            --nt-amber: #F2C879;
+        }
+
+        html, body, [class*="css"] {
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        .stApp {
+            background:
+                radial-gradient(900px 480px at 78% -8%, rgba(58, 112, 133, .16), transparent 62%),
+                radial-gradient(720px 420px at -8% 18%, rgba(37, 82, 125, .12), transparent 58%),
+                var(--nt-bg);
+            color: var(--nt-text);
+        }
+        [data-testid="stAppViewContainer"] { background: transparent; }
+        [data-testid="stHeader"] { background: rgba(8, 15, 27, .76); }
+        [data-testid="stToolbar"] { right: 1.2rem; }
+        .block-container {
+            max-width: 1480px;
+            padding-top: 2.1rem;
+            padding-bottom: 4rem;
+        }
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #0B1625 0%, #0A1421 100%);
+            border-right: 1px solid var(--nt-border);
+        }
+        [data-testid="stSidebar"] > div:first-child { padding-top: 1.25rem; }
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: #A9B9C9; }
+        [data-testid="stSidebar"] hr { border-color: var(--nt-border); }
+
+        .nt-brand {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 4px 22px;
+        }
+        .nt-brand-mark {
+            width: 42px; height: 42px; border-radius: 13px;
+            display: grid; place-items: center;
+            color: #06140F; font-weight: 900; font-size: 19px;
+            background: linear-gradient(145deg, #8BF0CB, #40B995);
+            box-shadow: 0 8px 28px rgba(70, 202, 157, .18);
+        }
+        .nt-brand-name { color: #F1F6FB; font-size: 18px; font-weight: 750; letter-spacing: -.55px; }
+        .nt-brand-sub { color: #7F96AB; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 9px; letter-spacing: 1.45px; margin-top: 3px; }
+        .nt-side-label {
+            color: #627B92; text-transform: uppercase; letter-spacing: 1.55px;
+            font: 700 9px "JetBrains Mono", ui-monospace, monospace;
+            margin: 10px 0 8px;
+        }
+        .nt-side-item {
+            color: #B9C8D6; font-size: 13px; padding: 9px 10px;
+            border-radius: 9px; margin: 2px 0; background: rgba(255,255,255,.025);
+        }
+        .nt-side-item.active {
+            color: #DDF9EF; background: rgba(103,221,181,.09);
+            border: 1px solid rgba(103,221,181,.16);
+        }
+        .nt-side-note { color: #748BA0; font-size: 11px; line-height: 1.55; }
+
+        .nt-kicker {
+            color: #80A2B5; text-transform: uppercase; letter-spacing: 2px;
+            font: 700 10px "JetBrains Mono", ui-monospace, monospace;
+        }
+        .nt-hero {
+            position: relative; overflow: hidden;
+            border: 1px solid rgba(126, 166, 190, .17);
+            border-radius: 22px; padding: 27px 30px 26px;
+            background: linear-gradient(125deg, rgba(19, 36, 54, .96), rgba(12, 26, 41, .92));
+            box-shadow: 0 22px 65px rgba(0,0,0,.18);
+            margin-bottom: 22px;
+        }
+        .nt-hero:after {
+            content: ""; position: absolute; width: 290px; height: 290px;
+            right: -82px; top: -150px; border-radius: 50%;
+            border: 1px solid rgba(103,221,181,.13);
+            box-shadow: 0 0 0 28px rgba(103,221,181,.025), 0 0 0 58px rgba(103,221,181,.018);
+            pointer-events: none;
+        }
+        .nt-hero-title {
+            color: #F3F7FB; font-size: clamp(27px, 3.4vw, 39px);
+            font-weight: 760; letter-spacing: -1.5px; line-height: 1.12;
+            margin: 10px 0 9px;
+        }
+        .nt-hero-copy { max-width: 720px; color: #A6B8C8; font-size: 13px; line-height: 1.7; }
+        .nt-hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+        .nt-chip {
+            color: #C4D2DF; border: 1px solid rgba(167,190,212,.17);
+            background: rgba(4,14,25,.30); border-radius: 999px;
+            padding: 5px 10px; font: 10px "JetBrains Mono", ui-monospace, monospace;
+        }
+        .nt-status {
+            display: inline-flex; align-items: center; gap: 7px;
+            border-radius: 999px; padding: 6px 10px;
+            border: 1px solid rgba(103,221,181,.22);
+            background: rgba(103,221,181,.08); color: #A6EBD1;
+            font: 10px "JetBrains Mono", ui-monospace, monospace;
+            letter-spacing: .4px; white-space: nowrap;
+        }
+        .nt-status-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: #67DDB5; box-shadow: 0 0 10px rgba(103,221,181,.7);
+        }
+        .nt-section-head { margin: 25px 0 12px; }
+        .nt-section-title { color: #EAF1F8; font-weight: 700; font-size: 17px; letter-spacing: -.35px; }
+        .nt-section-copy { color: var(--nt-muted); font-size: 11px; margin-top: 4px; }
+        .nt-overline {
+            color: #7892A9; font: 700 9px "JetBrains Mono", ui-monospace, monospace;
+            text-transform: uppercase; letter-spacing: 1.45px;
+        }
+        .nt-card {
+            border: 1px solid var(--nt-border); background: rgba(16, 27, 42, .82);
+            border-radius: 16px; padding: 17px 18px;
+        }
+        .nt-empty {
+            text-align: center; padding: 44px 22px; margin-top: 8px;
+            border-radius: 18px; border: 1px dashed rgba(145,174,199,.25);
+            background: rgba(16,27,42,.45);
+        }
+        .nt-empty-icon { font-size: 28px; margin-bottom: 10px; }
+        .nt-empty-title { color: #E7F0F7; font-size: 17px; font-weight: 700; }
+        .nt-empty-copy { color: #91A5B8; font-size: 12px; max-width: 500px; margin: 8px auto 0; line-height: 1.65; }
+        .nt-footer {
+            border-top: 1px solid var(--nt-border); margin-top: 36px; padding-top: 15px;
+            display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+            color: #70869B; font: 10px "JetBrains Mono", ui-monospace, monospace;
+        }
+
+        [data-testid="stMetric"] {
+            background: linear-gradient(145deg, rgba(19,34,51,.96), rgba(14,26,40,.96));
+            border: 1px solid var(--nt-border); border-radius: 15px;
+            padding: 17px 17px 14px; min-height: 112px;
+        }
+        [data-testid="stMetricLabel"] p {
+            color: #91A8BC !important; font-size: 11px !important;
+            letter-spacing: .25px;
+        }
+        [data-testid="stMetricValue"] {
+            color: #EFF6FB !important; font-size: 26px !important;
+            font-weight: 740 !important; letter-spacing: -.8px;
+        }
+        [data-testid="stMetricDelta"] { font-size: 10px !important; }
+        [data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] { gap: 1rem; }
+
+        [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+            background: #0D1928 !important; border-color: rgba(143,169,193,.22) !important;
+            color: #EAF1F8 !important; border-radius: 10px !important;
+        }
+        [data-testid="stTextInput"] input:focus {
+            border-color: rgba(103,221,181,.65) !important;
+            box-shadow: 0 0 0 1px rgba(103,221,181,.18) !important;
+        }
+        [data-testid="stCheckbox"] label, [data-testid="stSlider"] label { color: #C1CFDB !important; }
+        [data-testid="stExpander"] {
+            border: 1px solid var(--nt-border); border-radius: 12px;
+            background: rgba(13,25,40,.55);
+        }
+        .stButton > button, [data-testid="stFormSubmitButton"] button, .stDownloadButton > button {
+            border-radius: 10px !important; min-height: 42px;
+            font-weight: 650 !important; transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+        }
+        [data-testid="stFormSubmitButton"] button[kind="primary"], .stButton > button[kind="primary"] {
+            color: #06150F !important; border: 1px solid #67DDB5 !important;
+            background: linear-gradient(135deg, #86EBC8, #53C9A4) !important;
+            box-shadow: 0 8px 22px rgba(66,196,149,.13);
+        }
+        .stButton > button:hover, [data-testid="stFormSubmitButton"] button:hover,
+        .stDownloadButton > button:hover { transform: translateY(-1px); border-color: rgba(103,221,181,.65) !important; }
+        [data-testid="stTabs"] button[role="tab"] {
+            color: #94A9BC; font-size: 12px; font-weight: 650;
+            padding: 11px 16px; border-radius: 9px 9px 0 0;
+        }
+        [data-testid="stTabs"] button[aria-selected="true"] {
+            color: #BFF4DD !important; border-bottom-color: #67DDB5 !important;
+        }
+        [data-testid="stDataFrame"], [data-testid="stPlotlyChart"] {
+            border: 1px solid var(--nt-border); border-radius: 14px; overflow: hidden;
+            background: rgba(16,27,42,.62);
+        }
+        [data-testid="stAlert"] { border-radius: 12px; }
+        hr { border-color: var(--nt-border) !important; }
+
+        @media (max-width: 760px) {
+            .block-container { padding: 1.1rem .85rem 2.5rem; }
+            .nt-hero { padding: 22px 19px; border-radius: 17px; }
+            .nt-hero-title { font-size: 29px; }
+            [data-testid="stMetric"] { padding: 13px; min-height: 100px; }
+            [data-testid="stMetricValue"] { font-size: 22px !important; }
+            [data-testid="stTabs"] button[role="tab"] { padding: 9px 9px; font-size: 11px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_database_status():
+    try:
+        return check_connection()
+    except Exception as exc:
+        return False, str(exc)
+
+
+inject_newsroom_styles()
+
+# Sidebar: quiet product navigation and system context.
+with st.sidebar:
+    st.markdown(
+        """
+        <div class="nt-brand">
+          <div class="nt-brand-mark">N</div>
+          <div>
+            <div class="nt-brand-name">NewsTrace</div>
+            <div class="nt-brand-sub">MEDIA INTELLIGENCE</div>
+          </div>
+        </div>
+        <div class="nt-side-label">Workspace</div>
+        <div class="nt-side-item active">◈ &nbsp; Investigations</div>
+        <div class="nt-side-item">▤ &nbsp; Coverage analysis</div>
+        <div class="nt-side-item">◎ &nbsp; Journalist intelligence</div>
+        <div class="nt-side-item">⌘ &nbsp; Data exports</div>
+        <br/>
+        <div class="nt-side-label">Pipeline</div>
+        <div class="nt-side-note">01 &nbsp; Discover article URLs<br/>02 &nbsp; Extract metadata<br/>03 &nbsp; Enrich journalist profiles<br/>04 &nbsp; Explore coverage patterns</div>
+        <br/>
+        <div class="nt-side-label">About this workspace</div>
+        <div class="nt-side-note">A research workspace for mapping newsroom coverage, journalist activity and article-level signals.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+db_connected, db_message = get_database_status()
+db_label = "DATABASE CONNECTED" if db_connected else "LOCAL SESSION"
+db_class = "nt-status"
+
+st.markdown(
+    f"""
+    <div class="nt-hero">
+      <div class="nt-kicker">Journalist intelligence / Research workspace</div>
+      <div class="nt-hero-title">See the people behind<br/>the coverage.</div>
+      <div class="nt-hero-copy">
+        Discover articles, identify journalists and map the topics shaping a publication.
+        Start with a news outlet or a direct website URL.
+      </div>
+      <div class="nt-hero-meta">
+        <span class="nt-chip">ARTICLE DISCOVERY</span>
+        <span class="nt-chip">AUTHOR INTELLIGENCE</span>
+        <span class="nt-chip">COVERAGE MAPPING</span>
+        <span class="nt-status"><span class="nt-status-dot"></span>{db_label}</span>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# A clear single-step entry point, with optional controls kept out of the way.
+st.markdown(
+    """
+    <div class="nt-section-head">
+      <div class="nt-section-title">Start an investigation</div>
+      <div class="nt-section-copy">Enter a publication name or its official website to begin collecting coverage data.</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.container(border=True):
+    with st.form("newstrace_investigation", clear_on_submit=False):
+        outlet = st.text_input(
+            "News outlet",
+            placeholder="e.g. Reuters, The Guardian or https://www.example.com",
+            help="Use a publication name or paste the full website URL.",
+        )
+        with st.expander("Collection settings", expanded=False):
+            setting1, setting2, setting3 = st.columns(3)
+            with setting1:
+                max_articles = st.slider("Maximum articles", 50, 1000, 300, 50)
+            with setting2:
+                enable_profiles = st.checkbox(
+                    "Author profile enrichment",
+                    value=False,
+                    help="Visit journalist profile pages for role, biography and social links.",
+                )
+            with setting3:
+                enable_google = st.checkbox(
+                    "Search enrichment",
+                    value=False,
+                    help="Use your configured SerpAPI key to look for additional public profile information.",
+                )
+        submitted = st.form_submit_button("Run investigation  →", type="primary", use_container_width=True)
+
+if submitted:
+    if not outlet.strip():
+        st.error("Enter a publication name or website URL to continue.")
     else:
-        st.info("ℹ️ Database not configured (set SUPABASE_URL and SUPABASE_KEY in .env to enable)")
-except:
-    pass  # Silently skip if not configured
+        os.makedirs("data", exist_ok=True)
+        df_result, stats_result = run_unified_pipeline(outlet, max_articles, enable_profiles, enable_google)
 
-# Settings in expandable section
-with st.expander("⚙️ Configuration", expanded=True):
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        enable_profiles = st.checkbox(
-                "🎯 Author Profiles",
-                value=False,
-            help="Scrape author profile pages for detailed info (role, bio, social media)"
-        )
-    
-    with col2:
-        enable_google = st.checkbox(
-                "🌐 Google Enrichment",
-                value=False,
-            help="Use Google search to find social media & contact info (slower)"
-        )
-    
-    with col3:
-        max_articles = st.slider(
-            "Max Articles",
-                50,
-                1000,
-                300,
-            50,
-            help="Maximum number of articles to scrape"
-        )
+        if df_result is not None and not df_result.empty:
+            st.session_state["df"] = df_result
+            st.session_state["outlet"] = outlet.strip()
+            st.session_state["stats"] = stats_result or {}
 
-st.markdown("---")
-
-col1, col2 = st.columns([3, 1])
-with col1:
-    outlet = st.text_input("🏢 Enter news outlet name or website URL", "",
-                           help="Type any outlet (worldwide) or paste its site URL. No predefined URLs are used.")
-
-with col2:
-    st.write("")
-    st.write("")
-    if st.button("🚀 Start Analysis", type="primary", width='stretch'):
-        if not outlet.strip():
-            st.error("⚠️ Please enter an outlet name or URL")
-        else:
-            os.makedirs('data', exist_ok=True)
-            
-            df, stats = run_unified_pipeline(outlet, max_articles, enable_profiles, enable_google)
-            
-            if df is not None and not df.empty:
-                st.session_state['df'] = df
-                st.session_state['outlet'] = outlet
-                st.session_state['stats'] = stats
-                
-                # Save to Supabase backend (optional)
-                try:
-                    with st.spinner("💾 Saving to database..."):
-                        articles_result = save_articles(df, outlet)
-                        profiles_result = save_journalist_profiles(df, outlet)
-                        
-                        if articles_result['success'] or profiles_result['success']:
-                            st.success(f"✅ Saved to database: {articles_result['count']} articles, {profiles_result['count']} profiles")
-                        else:
-                            st.info("ℹ️ Database save skipped (configure Supabase in .env to enable)")
-                except Exception as e:
-                    # Silently continue if Supabase not configured
-                    pass
-                
-                st.rerun()
+            # Persistence is optional; analysis remains available when no DB is configured.
+            if db_connected:
+                with st.spinner("Saving this investigation…"):
+                    articles_result = save_articles(df_result, outlet)
+                    profiles_result = save_journalist_profiles(df_result, outlet)
+                if articles_result.get("success") or profiles_result.get("success"):
+                    st.success(
+                        f"Saved {articles_result.get('count', 0)} articles and "
+                        f"{profiles_result.get('count', 0)} journalist profiles."
+                    )
+                else:
+                    st.warning("The analysis completed, but database storage was unavailable.")
             else:
-                st.warning("No articles were found or parsed. Try increasing Max Articles, enabling Google enrichment, or selecting a different outlet.")
+                st.caption("Investigation is available in this session. Configure Supabase to enable persistent storage.")
+        else:
+            st.warning("No articles were found or parsed. Try a direct website URL, a different publication, or a smaller collection size.")
 
-# Display Results
-if 'df' in st.session_state and st.session_state['df'] is not None:
-    df = st.session_state['df']
-    stats = st.session_state.get('stats', {})
-    
-    st.markdown("---")
-    st.markdown("## 📊 Results")
-    
-    # Metrics Row
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
-    authors = len(df[df['author'] != 'Unknown']['author'].unique()) if 'author' in df.columns else 0
-    articles = len(df)
-    unknown_pct = (len(df[df['author'] == 'Unknown']) / articles * 100) if articles > 0 and 'author' in df.columns else 0
-    
-    # Count social media
-    social_count = 0
-    for col_name in ['twitter', 'linkedin', 'instagram', 'facebook']:
-        if col_name in df.columns:
-            social_count += df[col_name].notna().sum()
-    
-    # Count emails
-    email_count = df['author_email'].notna().sum() if 'author_email' in df.columns else 0
-    
-    col1.metric("👥 Authors", authors)
-    col2.metric("📰 Articles", articles)
-    col3.metric("🔗 Social Links", social_count)
-    col4.metric("📧 Emails", email_count)
-    col5.metric("❓ Unknown", f"{unknown_pct:.1f}%")
-    
-    # Stats summary
-    if stats:
-        st.markdown("---")
-        st.markdown("### 📈 Pipeline Stats")
-        stat_cols = st.columns(4)
-        
-        if 'urls_found' in stats:
-            stat_cols[0].metric("URLs Collected", stats['urls_found'])
-        if 'articles_scraped' in stats:
-            stat_cols[1].metric("Articles Scraped", stats['articles_scraped'])
-        if 'profiles_found' in stats:
-            stat_cols[2].metric("Profiles Enriched", stats['profiles_found'])
-        if 'google_enriched' in stats:
-            stat_cols[3].metric("Google Enriched", stats['google_enriched'])
-    
-    # Chart
-    st.markdown("---")
-    chart = create_chart(df)
-    if chart:
-        st.plotly_chart(chart, width='stretch')
-    else:
-        st.info("Not enough author data to plot the Top Authors chart.")
+# Render results in focused workspaces rather than one very long page.
+if "df" in st.session_state and st.session_state["df"] is not None:
+    df = st.session_state["df"].copy()
+    stats = st.session_state.get("stats", {})
+    outlet_label = st.session_state.get("outlet", "Current investigation")
+    if "author" not in df.columns:
+        df["author"] = "Unknown"
+    df["author"] = df["author"].fillna("Unknown")
+    author_count = df.loc[df["author"] != "Unknown", "author"].nunique()
+    article_count = len(df)
+    unknown_count = int((df["author"] == "Unknown").sum())
+    unknown_pct = (unknown_count / article_count * 100) if article_count else 0
+    social_count = sum(
+        int(df[col].notna().sum()) for col in ["twitter", "linkedin", "instagram", "facebook"] if col in df.columns
+    )
+    email_count = int(df["author_email"].notna().sum()) if "author_email" in df.columns else 0
 
-    # Author Network
-    st.markdown("---")
-    st.markdown("### 🕸️ Author Network")
-    net = create_author_section_network(df)
-    if net:
-        st.plotly_chart(net, width='stretch')
-    else:
-        st.info("Network will appear once we have identified multiple authors and sections.")
-    
-    # Top Journalists
-    if authors > 0:
-        st.markdown("---")
-        st.markdown("### 👤 Top Journalists")
-        display_journalist_profiles(df)
-    
-    # Full Data Table
-    st.markdown("---")
-    st.markdown("### 📋 Complete Dataset")
-    
-    # Select columns to display
-    available_cols = list(df.columns)
-    default_cols = ['author', 'title', 'section', 'date', 'url']
-    display_cols = [col for col in default_cols if col in available_cols]
-    
-    # Add enhanced columns if they exist
-    for col in ['author_role', 'author_email', 'twitter', 'linkedin']:
-        if col in available_cols:
-            display_cols.append(col)
-    
-    # Make URL clickable if present
-    column_config = {}
-    if 'url' in display_cols:
-        column_config['url'] = st.column_config.LinkColumn("URL", display_text="Open Article")
-    if display_cols:
-        st.dataframe(df[display_cols], width='stretch', height=400, hide_index=True, column_config=column_config)
-    else:
-        st.dataframe(df, width='stretch', height=400, hide_index=True)
-    
-    # Download Section
-    st.markdown("---")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        st.markdown("💡 **Tip**: All data includes enhanced fields (roles, emails, social media)")
-    
-    with col2:
-        csv = df.to_csv(index=False)
-        st.download_button(
-            "📥 Download CSV",
-            csv,
-            f"{st.session_state.get('outlet', 'newstrace')}_complete.csv",
-            "text/csv",
-            use_container_width=True
+    st.markdown(
+        f"""
+        <div class="nt-section-head">
+          <div class="nt-overline">Current investigation</div>
+          <div class="nt-section-title">{outlet_label}</div>
+          <div class="nt-section-copy">Collected records are grouped into overview, coverage, journalist and dataset views.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    overview_tab, coverage_tab, journalists_tab, dataset_tab = st.tabs(
+        ["Overview", "Coverage", "Journalists", "Dataset"]
+    )
+
+    with overview_tab:
+        st.markdown('<div class="nt-overline">At a glance</div>', unsafe_allow_html=True)
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Identified journalists", f"{author_count:,}")
+        metric_cols[1].metric("Articles collected", f"{article_count:,}")
+        metric_cols[2].metric("Public profile links", f"{social_count:,}")
+        metric_cols[3].metric("Unidentified authors", f"{unknown_pct:.1f}%")
+
+        st.markdown(
+            """
+            <div class="nt-section-head">
+              <div class="nt-section-title">Collection summary</div>
+              <div class="nt-section-copy">A quick readout of what the pipeline found in this run.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-    
-    with col3:
-        json_data = df.to_json(orient='records', indent=2)
-        st.download_button(
-            "📥 Download JSON",
-            json_data,
-            f"{st.session_state.get('outlet', 'newstrace')}_complete.json",
-            "application/json",
-            use_container_width=True
+        summary_left, summary_right = st.columns([1.2, 1])
+        with summary_left:
+            st.markdown('<div class="nt-card">', unsafe_allow_html=True)
+            st.markdown("**Pipeline stages**")
+            stage_names = [
+                ("Article URLs discovered", stats.get("urls_found", 0)),
+                ("Articles successfully parsed", stats.get("articles_scraped", article_count)),
+                ("Journalist profiles enriched", stats.get("profiles_found", 0)),
+                ("Search-enriched profiles", stats.get("google_enriched", 0)),
+            ]
+            for stage_name, stage_value in stage_names:
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid rgba(157,180,205,.10);">'
+                    f'<span style="color:#9DB0C2;font-size:12px;">{stage_name}</span>'
+                    f'<strong style="color:#EAF1F8;font-size:13px;font-variant-numeric:tabular-nums;">{stage_value:,}</strong></div>',
+                    unsafe_allow_html=True,
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
+        with summary_right:
+            st.markdown('<div class="nt-card">', unsafe_allow_html=True)
+            st.markdown("**Data quality signal**")
+            known_pct = 100 - unknown_pct
+            st.markdown(
+                f'<div style="font-size:30px;font-weight:760;color:#A8EBD2;margin:12px 0 4px;">{known_pct:.1f}%</div>'
+                '<div style="font-size:11px;color:#93A6BA;">of collected articles have an identified author</div>',
+                unsafe_allow_html=True,
+            )
+            st.progress(max(0.0, min(1.0, known_pct / 100)))
+            st.caption(f"{unknown_count:,} article(s) currently have an unknown author.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            """
+            <div class="nt-section-head">
+              <div class="nt-section-title">What to explore next</div>
+              <div class="nt-section-copy">Move from the collection summary into the evidence behind it.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
+        next_cols = st.columns(3)
+        next_items = [
+            ("01", "Coverage", "Compare the most active authors and the sections they cover."),
+            ("02", "Journalists", "Review identified reporters and any extracted public profile details."),
+            ("03", "Dataset", "Search, filter and export the article-level records."),
+        ]
+        for col, item in zip(next_cols, next_items):
+            with col:
+                st.markdown(
+                    f'<div class="nt-card"><div class="nt-overline">{item[0]}</div>'
+                    f'<div style="color:#EAF1F8;font-size:14px;font-weight:700;margin:8px 0 5px;">{item[1]}</div>'
+                    f'<div style="color:#93A6BA;font-size:11px;line-height:1.6;">{item[2]}</div></div>',
+                    unsafe_allow_html=True,
+                )
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #666;'>
-    <strong>NewsTrace</strong> • Unified Journalist Intelligence Platform<br>
-    <small>Single pipeline • Maximum efficiency • Enhanced data extraction</small>
-</div>
-""", unsafe_allow_html=True)
+    with coverage_tab:
+        st.markdown(
+            """
+            <div class="nt-section-head">
+              <div class="nt-section-title">Coverage intelligence</div>
+              <div class="nt-section-copy">Understand who is publishing and how journalist activity maps to coverage sections.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        chart_col, network_col = st.columns([1, 1.15])
+        with chart_col:
+            st.markdown("**Most active journalists**")
+            chart = create_chart(df)
+            if chart:
+                chart.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#DCE7F2", family="Inter, sans-serif"),
+                    title=None, height=430,
+                )
+                st.plotly_chart(chart, use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.info("Author activity will appear after journalists have been identified.")
+        with network_col:
+            st.markdown("**Author–section relationships**")
+            network = create_author_section_network(df)
+            if network:
+                network.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#DCE7F2", family="Inter, sans-serif"),
+                )
+                st.plotly_chart(network, use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.info("The network needs multiple identified authors and coverage sections.")
 
+        if "section" in df.columns:
+            st.markdown("**Section distribution**")
+            section_counts = (
+                df["section"].fillna("Unclassified").replace("", "Unclassified")
+                .value_counts().head(12).rename_axis("Section").reset_index(name="Articles")
+            )
+            st.dataframe(section_counts, use_container_width=True, hide_index=True)
 
+    with journalists_tab:
+        st.markdown(
+            """
+            <div class="nt-section-head">
+              <div class="nt-section-title">Journalist intelligence</div>
+              <div class="nt-section-copy">Consolidated author records with the profile attributes available from the source pages.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if author_count:
+            display_journalist_profiles(df)
+        else:
+            st.markdown(
+                '<div class="nt-empty"><div class="nt-empty-icon">◎</div>'
+                '<div class="nt-empty-title">No journalist profiles identified yet</div>'
+                '<div class="nt-empty-copy">The article records were collected, but the source pages did not expose usable author names. Try another outlet or enable author profile enrichment.</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    with dataset_tab:
+        st.markdown(
+            """
+            <div class="nt-section-head">
+              <div class="nt-section-title">Article dataset</div>
+              <div class="nt-section-copy">Search the collected records, narrow by section, then export the current investigation.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        filter_col, section_col = st.columns([1.6, 1])
+        with filter_col:
+            record_query = st.text_input("Search records", placeholder="Search author, headline, URL or date…", key="dataset_search")
+        with section_col:
+            if "section" in df.columns:
+                section_options = sorted(
+                    set(df["section"].fillna("Unclassified").replace("", "Unclassified").astype(str).tolist())
+                )
+                chosen_section = st.selectbox("Coverage section", ["All sections"] + section_options, key="dataset_section")
+            else:
+                chosen_section = "All sections"
+
+        filtered_df = df.copy()
+        if chosen_section != "All sections" and "section" in filtered_df.columns:
+            section_values = filtered_df["section"].fillna("Unclassified").replace("", "Unclassified").astype(str)
+            filtered_df = filtered_df.loc[section_values == chosen_section]
+        if record_query.strip():
+            mask = filtered_df.astype(str).apply(
+                lambda column: column.str.contains(record_query.strip(), case=False, na=False, regex=False)
+            ).any(axis=1)
+            filtered_df = filtered_df.loc[mask]
+
+        st.caption(f"Showing {len(filtered_df):,} of {len(df):,} article records")
+        preferred_cols = [
+            "author", "title", "section", "date", "url",
+            "author_role", "author_email", "twitter", "linkedin",
+        ]
+        display_cols = [col for col in preferred_cols if col in filtered_df.columns]
+        column_config = {}
+        if "url" in display_cols:
+            column_config["url"] = st.column_config.LinkColumn("Article", display_text="Open source")
+        if "author_email" in display_cols:
+            column_config["author_email"] = st.column_config.TextColumn("Email")
+        if display_cols:
+            st.dataframe(
+                filtered_df[display_cols],
+                use_container_width=True,
+                height=520,
+                hide_index=True,
+                column_config=column_config,
+            )
+        else:
+            st.dataframe(filtered_df, use_container_width=True, height=520, hide_index=True)
+
+        export_left, export_csv, export_json = st.columns([2, 1, 1])
+        with export_left:
+            st.caption("Exports include the filtered records currently shown above.")
+        with export_csv:
+            st.download_button(
+                "↓  Export CSV",
+                filtered_df.to_csv(index=False).encode("utf-8"),
+                f"{outlet_label.replace(' ', '_')}_newstrace.csv",
+                "text/csv",
+                use_container_width=True,
+            )
+        with export_json:
+            st.download_button(
+                "↓  Export JSON",
+                filtered_df.to_json(orient="records", indent=2).encode("utf-8"),
+                f"{outlet_label.replace(' ', '_')}_newstrace.json",
+                "application/json",
+                use_container_width=True,
+            )
+
+else:
+    st.markdown(
+        """
+        <div class="nt-empty">
+          <div class="nt-empty-icon">⌕</div>
+          <div class="nt-empty-title">Your next investigation starts here</div>
+          <div class="nt-empty-copy">
+            Enter a publication above to collect its articles and surface journalist activity.
+            Your results will appear in a focused workspace with coverage charts, journalist profiles and searchable exports.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown(
+    """
+    <div class="nt-footer">
+      <span>NEWSTRACE · JOURNALIST INTELLIGENCE</span>
+      <span>Research with context. Data with provenance.</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
