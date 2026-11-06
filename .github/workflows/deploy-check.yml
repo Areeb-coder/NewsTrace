@@ -57,7 +57,7 @@ jobs:
       - name: Start FastAPI and check API plus frontend
         shell: bash
         env:
-          NEWSTRACE_DB_PATH: \${{ runner.temp }}/newstrace-smoke.sqlite3
+          NEWSTRACE_DB_PATH: ${{ runner.temp }}/newstrace-smoke.sqlite3
         run: |
           uvicorn backend.main:app --host 127.0.0.1 --port 8000 > fastapi.log 2>&1 &
           echo $! > fastapi.pid
