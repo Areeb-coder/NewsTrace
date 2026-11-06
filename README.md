@@ -208,7 +208,7 @@ SERP_API_KEY=your_serpapi_key
 Start the Streamlit dashboard:
 
 ```bash
-streamlit run dashboard.py
+streamlit run app.py
 ```
 
 Then open:
@@ -420,3 +420,13 @@ If you intend to allow others to legally reuse, modify, or distribute the projec
 ## Built With
 
 **Python · Streamlit · Playwright · BeautifulSoup · Pandas · Supabase**
+
+
+## 🚀 Cloud Deployment
+
+NewsTrace is a Streamlit application that uses Playwright/Chromium for scraping. For a production deployment, use a Docker-capable host such as **Render** rather than a static-site host.
+
+- The repository includes a `Dockerfile` and `render.yaml` for Render Blueprint deployment.
+- Follow [DEPLOYMENT.md](DEPLOYMENT.md) for setup instructions and optional environment variables.
+- Vercel and GitHub Pages are not drop-in hosts for this persistent Streamlit + Chromium application. GitHub is the source-code host; it does not run the app by itself.
+
