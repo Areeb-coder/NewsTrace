@@ -1,10 +1,15 @@
-playwright==1.40.0
-beautifulsoup4==4.12.2
-pandas==2.1.4
-streamlit==1.29.0
-requests==2.31.0
-plotly==5.18.0
-networkx==3.2.1
-feedparser==6.0.11
-supabase==2.3.0
-python-dotenv==1.0.0
+# Keep the Playwright version in sync with the Docker base image.
+playwright==1.64.1
+
+# Streamlit 1.66 provides the width="stretch" API used by dashboard.py.
+streamlit==1.66.0
+
+beautifulsoup4>=4.12.3,<5
+lxml>=5.3,<7
+pandas>=2.2.3,<4
+plotly>=5.24,<7
+requests>=2.32,<3
+networkx>=3.4,<4
+feedparser>=6.0.11,<7
+supabase>=2.10,<3
+python-dotenv>=1.0,<2
