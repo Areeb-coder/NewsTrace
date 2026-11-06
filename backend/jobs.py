@@ -17,6 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
