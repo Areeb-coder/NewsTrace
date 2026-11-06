@@ -84,3 +84,10 @@ Keep one Uvicorn worker and one service instance. The job semaphore and task sch
 ## 7. Streamlit retirement
 
 The production Blueprint no longer defines a Streamlit service. The canonical service uses `Dockerfile.web`, `/api/health`, Next.js and FastAPI. There is no Streamlit entry point in the production application.
+
+
+## Optional pagination
+
+The crawler reads "next page" links with one immediate DOM evaluation. Pagination
+is best-effort: no matching link or a DOM replacement returns an empty list and
+does not discard the article links already collected from the current page.
