@@ -318,6 +318,7 @@ async def crawl_sections_parallel(
                             ]
                             _notify(
                                 progress_callback,
+                                "HTML discovery",
                                 len(visited_pages),
                                 max_pages,
                                 f"Browser listing failed; HTTP fallback recovered {len(hrefs)} links",
