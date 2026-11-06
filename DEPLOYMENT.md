@@ -81,9 +81,9 @@ Open `/api/health`. A healthy production response reports `storage.backend = "su
 
 Keep one Uvicorn worker and one service instance. The job semaphore and task scheduler are process-local. If NewsTrace later needs multiple instances or jobs that resume after process restarts, move execution to a durable shared queue/worker system before scaling out.
 
-## 7. Streamlit retirement
+## 7. Retired production path
 
-The production Blueprint no longer defines a Streamlit service. The canonical service uses `Dockerfile.web`, `/api/health`, Next.js and FastAPI. There is no Streamlit entry point in the production application.
+The canonical service uses `Dockerfile.web`, `/api/health`, Next.js and FastAPI.
 
 
 ## Optional pagination
