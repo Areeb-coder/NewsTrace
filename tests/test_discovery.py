@@ -3,7 +3,7 @@
 import ast
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from bs4 import BeautifulSoup
 
@@ -16,6 +16,7 @@ from scrapers.article_scraper import (
 )
 from utils.article_collector import (
     _get_next_page_hrefs,
+    collect_article_urls,
     is_article_url,
     is_section_page,
     normalize_url,
@@ -335,6 +336,43 @@ class ArticleParsingTests(unittest.TestCase):
         self.assertIsNone(image)
 
 
+
+
+
+class ApiFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unexpected_api_discovery_error_falls_back_to_html_crawler(self):
+        article_url = (
+            "https://www.thehindu.com/world/a-long-headline-for-the-fallback-test"
+        )
+        progress = []
+
+        with (
+            patch(
+                "utils.article_collector.try_api_scraping",
+                side_effect=ValueError(
+                    "The publication hostname could not be resolved: api.www.thehindu.com."
+                ),
+            ),
+            patch(
+                "utils.article_collector.crawl_sections_parallel",
+                new=AsyncMock(return_value=[article_url]),
+            ) as html_crawler,
+        ):
+            result = await collect_article_urls(
+                "https://www.thehindu.com/world",
+                max_articles=10,
+                progress_callback=lambda *event: progress.append(event),
+            )
+
+        self.assertEqual(result, [article_url])
+        html_crawler.assert_awaited_once()
+        self.assertTrue(
+            any(
+                event[0] == "API discovery"
+                and "switching to HTML discovery" in event[4]
+                for event in progress
+            )
+        )
 
 if __name__ == "__main__":
     unittest.main()
