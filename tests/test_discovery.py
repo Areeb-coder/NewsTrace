@@ -369,7 +369,7 @@ class ApiFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             any(
                 event[0] == "API discovery"
-                and "switching to HTML discovery" in event[4]
+                and "switching to HTML discovery" in event[3]
                 for event in progress
             )
         )
