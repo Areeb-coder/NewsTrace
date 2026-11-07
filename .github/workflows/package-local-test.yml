@@ -1,0 +1,29 @@
+name: Package NewsTrace local test ZIP
+
+on:
+  push:
+    branches:
+      - fix/newstrace-backend-reconstruction
+
+permissions:
+  contents: read
+
+jobs:
+  package-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tested backend branch
+        uses: actions/checkout@v4
+
+      - name: Create source archive
+        run: |
+          git archive --format=zip --prefix=NewsTrace/ HEAD -o NewsTrace-backend-fix.zip
+          test -s NewsTrace-backend-fix.zip
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NewsTrace-backend-fix
+          path: NewsTrace-backend-fix.zip
+          if-no-files-found: error
+          retention-days: 7
