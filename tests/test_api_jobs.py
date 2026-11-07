@@ -119,6 +119,32 @@ class DiscoveryJobApiLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(results["articles"][0]["outlet"], "example.com")
                 self.assertEqual(results["articles"][0]["job_id"], job_id)
 
+    async def test_unresolved_publication_name_becomes_terminal_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            test_store = JobStore(str(Path(temporary) / "resolver-failure.sqlite3"))
+            api.app.state.tasks = {}
+            api.app.state.job_semaphore = asyncio.Semaphore(1)
+            api._start_attempts.clear()
+
+            with (
+                patch.object(api, "store", test_store),
+                patch.object(api, "resolve_outlet", return_value=(None, None)),
+            ):
+                response = await api.start_discovery(
+                    api.DiscoveryRequest(outlet="Unknown Local Gazette", max_articles=20),
+                    fake_request("198.51.100.26"),
+                )
+                tasks = list(api.app.state.tasks.values())
+                await asyncio.gather(*tasks)
+
+                job = await api.discovery_status(response["job_id"])
+                self.assertEqual(job["status"], "failed")
+                self.assertEqual(job["stage"], "Failed")
+                self.assertIn("full website URL", job["error"])
+                self.assertTrue(any(
+                    event["stage"] == "Failed" for event in job["events"]
+                ))
+
     async def test_unknown_job_returns_not_found(self):
         with tempfile.TemporaryDirectory() as temporary:
             test_store = JobStore(str(Path(temporary) / "empty.sqlite3"))

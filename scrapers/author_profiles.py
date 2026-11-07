@@ -7,6 +7,8 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import re
 
+from utils.url_safety import install_public_network_guard
+
 
 async def get_author_profile_page(author_name, website_url):
     """
@@ -30,7 +32,9 @@ async def get_author_profile_page(author_name, website_url):
     # Try each pattern
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        context = await browser.new_context()
+        await install_public_network_guard(context)
+        page = await context.new_page()
         
         for url in patterns:
             try:
@@ -53,15 +57,18 @@ async def scrape_author_details(author_profile_url):
     """
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        
+        context = await browser.new_context()
+        await install_public_network_guard(context)
+        page = await context.new_page()
+
         try:
             await page.goto(author_profile_url, timeout=8000)
             html = await page.content()
-            await browser.close()
-        except:
-            await browser.close()
+        except Exception:
             return None
+        finally:
+            await context.close()
+            await browser.close()
     
     soup = BeautifulSoup(html, 'lxml')
     

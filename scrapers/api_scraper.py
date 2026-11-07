@@ -5,15 +5,23 @@ All network calls have connect/read timeouts and report progress so the
 Streamlit interface does not appear frozen while endpoints are probed.
 """
 
+import logging
 import math
 import time
 import requests
+
+from utils.url_safety import safe_get
 from urllib.parse import urlparse
+
+
+logger = logging.getLogger("newstrace.api_discovery")
 
 
 def find_api_endpoints(website_url):
     """Return common JSON API endpoints for the publication."""
-    domain = urlparse(website_url).netloc
+    # Probe conventional routes on the publication's own origin only.
+    # Guessing a separate api.<domain> hostname is unreliable (and turns
+    # www.publisher.tld into the usually invalid api.www.publisher.tld).
     base = website_url.rstrip("/")
     return [
         f"{base}/api/articles",
@@ -22,7 +30,6 @@ def find_api_endpoints(website_url):
         f"{base}/graphql",
         f"{base}/api/search",
         f"{base}/feed/json",
-        f"https://api.{domain}/articles",
     ]
 
 
@@ -60,8 +67,9 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
             params = {"page": 1, "per_page": 100, "limit": 100, "size": 100}
 
             try:
-                response = session.get(
+                response = safe_get(
                     api_url,
+                    session=session,
                     params=params,
                     timeout=(min(1.2, remaining), min(1.8, remaining)),
                 )
@@ -79,7 +87,7 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
                 if not articles:
                     continue
 
-                print(f"API discovery found a candidate endpoint: {api_url}")
+                logger.info("API discovery found a candidate endpoint on %s", urlparse(api_url).hostname)
                 all_articles = list(articles)
                 page_limit = min(10, max(1, math.ceil(max_articles / 100)))
 
@@ -95,15 +103,21 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
                     )
                     params["page"] = page_number
                     try:
-                        page_response = session.get(
+                        page_response = safe_get(
                             api_url,
+                            session=session,
                             params=params,
                             timeout=(1.2, 1.8),
                         )
                         if page_response.status_code != 200:
                             break
                         more_articles = extract_articles_from_json(page_response.json())
-                    except (requests.RequestException, ValueError):
+                    except (requests.RequestException, ValueError, RuntimeError) as exc:
+                        logger.debug(
+                            "API pagination stopped at page %s (%s)",
+                            page_number,
+                            type(exc).__name__,
+                        )
                         break
 
                     if not more_articles:
@@ -118,8 +132,24 @@ def try_api_scraping(website_url, max_articles=500, progress_callback=None):
                 )
                 return all_articles[:max_articles]
 
-            except requests.RequestException as exc:
-                print(f"API probe failed for {api_url}: {type(exc).__name__}: {exc}")
+            except (requests.RequestException, ValueError, RuntimeError) as exc:
+                # URL validation can raise ValueError for an unresolvable or
+                # non-public optional endpoint. Redirect policy can raise
+                # RuntimeError. Neither should abort the whole investigation:
+                # this API probe is opportunistic and later routes/HTML crawl
+                # may still discover the publication's articles.
+                logger.debug(
+                    "API endpoint %s/%s was unavailable (%s); trying the next candidate",
+                    index,
+                    len(endpoints),
+                    type(exc).__name__,
+                )
+                _notify(
+                    progress_callback,
+                    index,
+                    len(endpoints),
+                    f"API endpoint {index}/{len(endpoints)} unavailable; checking the next candidate",
+                )
                 continue
     finally:
         session.close()

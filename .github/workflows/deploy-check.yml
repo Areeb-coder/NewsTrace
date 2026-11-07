@@ -2,7 +2,7 @@ name: NewsTrace Next.js and FastAPI deployment checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, "fix/**"]
   pull_request:
     branches: [main]
 
@@ -133,8 +133,6 @@ jobs:
                   if errors:
                       raise SystemExit("Browser runtime errors: " + " | ".join(errors[:4]))
 
-                  # Simulate a tab refresh while a server-side job is running.
-                  # The browser should reconnect only to its own saved job ID.
                   resume_page = await browser.new_page(viewport={"width": 1280, "height": 900})
                   resume_job = {
                       "job_id": "resume-e2e-job",
@@ -182,8 +180,6 @@ jobs:
                   ).wait_for()
                   await resume_page.close()
 
-                  # Exercise the frontend's actual Discover -> job status ->
-                  # results flow with deterministic API responses.
                   await page.get_by_role("button", name="Front page").click()
 
                   completed_job = {
@@ -277,4 +273,3 @@ jobs:
       - name: Show FastAPI logs on failure
         if: failure()
         run: cat fastapi.log || true
-

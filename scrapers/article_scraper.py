@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from scrapers.enhanced_author_extractor import extract_author_comprehensive
+from utils.url_safety import install_public_network_guard, safe_get
 
 
 def _candidate_author_name(value):
@@ -196,9 +197,7 @@ def _parse_article_html(article_url, html, diagnostics=None):
 
 def _fetch_article_with_requests(article_url):
     """Independent HTTP fallback for sites that reject or break headless browsers."""
-    import requests
-
-    response = requests.get(
+    response = safe_get(
         article_url,
         headers={
             "User-Agent": (
@@ -210,7 +209,7 @@ def _fetch_article_with_requests(article_url):
             "Accept-Language": "en-US,en;q=0.9",
         },
         timeout=(4, 9),
-        allow_redirects=True,
+        max_redirects=5,
     )
     return response.status_code, response.url, response.text, response.headers.get("Content-Type", "")
 
@@ -299,6 +298,7 @@ async def scrape_journalist_info(article_url, page=None, diagnostics=None):
         try:
             browser = await playwright.chromium.launch(headless=True, timeout=15000)
             context = await browser.new_context()
+            await install_public_network_guard(context)
             page = await context.new_page()
             page.set_default_navigation_timeout(12000)
             return await _extract_from_page(page, article_url, diagnostics)

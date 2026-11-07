@@ -7,16 +7,20 @@ used by API and command-line callers.
 """
 
 import asyncio
+import logging
 import re
 import time
 from collections import deque
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
-import requests
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
-from scrapers.api_scraper import try_api_scraping
+from scrapers.api_scraper import find_api_endpoints, try_api_scraping
+from utils.url_safety import install_public_network_guard, safe_get
+
+
+logger = logging.getLogger("newstrace.discovery")
 
 
 TRACKING_PARAMS = {
@@ -127,7 +131,7 @@ def is_article_url(url, base_domain):
 
 def _fetch_listing_html(url):
     """Try a bounded plain-HTTP listing fetch if Chromium cannot open a section."""
-    response = requests.get(
+    response = safe_get(
         url,
         headers={
             "User-Agent": (
@@ -138,7 +142,7 @@ def _fetch_listing_html(url):
             "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
         },
         timeout=(3, 7),
-        allow_redirects=True,
+        max_redirects=5,
     )
     content_type = response.headers.get("Content-Type", "").lower()
     if response.status_code >= 400:
@@ -211,10 +215,16 @@ async def collect_article_urls(
     parsed_start = urlparse(normalized_home)
     site_origin = f"{parsed_start.scheme}://{parsed_start.netloc}"
 
-    _notify(progress_callback, "API discovery", 0, 7, "Checking common publication API endpoints")
-    # The API probe uses synchronous requests. Running it directly here
-    # blocks the asyncio event loop and prevents live job progress from being
-    # delivered while the publisher endpoints are being checked.
+    api_endpoint_count = len(find_api_endpoints(site_origin))
+    _notify(
+        progress_callback,
+        "API discovery",
+        0,
+        api_endpoint_count,
+        "Checking conventional API routes on the publication website",
+    )
+    # The API probe uses synchronous requests. Running it in a thread keeps
+    # DNS/HTTP latency from blocking FastAPI status polling.
     loop = asyncio.get_running_loop()
 
     def forward_api_progress(stage, current, total, detail):
@@ -223,12 +233,30 @@ async def collect_article_urls(
                 _notify, progress_callback, stage, current, total, detail
             )
 
-    api_data = await asyncio.to_thread(
-        try_api_scraping,
-        site_origin,
-        max_articles,
-        progress_callback=forward_api_progress,
-    )
+    try:
+        api_data = await asyncio.to_thread(
+            try_api_scraping,
+            site_origin,
+            max_articles,
+            progress_callback=forward_api_progress,
+        )
+    except Exception as exc:
+        # API discovery is an optimization, not a prerequisite. A malformed
+        # optional endpoint or an unexpected probe error must not prevent the
+        # HTML crawler from discovering articles. Preserve the real exception
+        # in server logs and make the fallback visible to the user.
+        logger.exception(
+            "API-first discovery failed for %s; falling back to HTML discovery",
+            site_origin,
+        )
+        _notify(
+            progress_callback,
+            "API discovery",
+            api_endpoint_count,
+            api_endpoint_count,
+            f"API probing was unavailable ({type(exc).__name__}); switching to HTML discovery",
+        )
+        api_data = None
 
     if api_data:
         api_urls = []
@@ -308,6 +336,7 @@ async def crawl_sections_parallel(
                 ),
                 ignore_https_errors=False,
             )
+            await install_public_network_guard(context)
             page = await context.new_page()
             page.set_default_navigation_timeout(navigation_timeout_ms)
             page.set_default_timeout(5000)
